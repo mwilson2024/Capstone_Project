@@ -6,36 +6,28 @@ export default function UploadScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraOpen, setCameraOpen] = useState(false);
   const cameraRef = useRef<CameraView>(null);
-
   if (!permission) {
     return <View style={styles.page} />;
   }
-
   if (!permission.granted) {
     return (
       <View style={styles.page}>
         <Text style={styles.title}>Camera Permission Needed</Text>
-        <Text style={styles.subtitle}>
-          EventLens needs camera access so guests can take photos during an event.
-        </Text>
-
+        <Text style={styles.subtitle}>EventLens needs camera access so guests can take photos during an event.</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
           <Text style={styles.primaryButtonText}>Allow Camera Access</Text>
         </Pressable>
       </View>
     );
   }
-
   if (cameraOpen) {
     return (
       <View style={styles.cameraPage}>
         <CameraView ref={cameraRef} style={styles.camera} facing="back" />
-
         <View style={styles.cameraControls}>
           <Pressable style={styles.captureButton}>
             <Text style={styles.primaryButtonText}>Take Photo</Text>
           </Pressable>
-
           <Pressable style={styles.closeButton} onPress={() => setCameraOpen(false)}>
             <Text style={styles.closeButtonText}>Close Camera</Text>
           </Pressable>
@@ -43,36 +35,26 @@ export default function UploadScreen() {
       </View>
     );
   }
-
   return (
     <View style={styles.page}>
       <Text style={styles.logo}>EventLens</Text>
       <Text style={styles.title}>Graduation Party</Text>
-      <Text style={styles.subtitle}>
-        Add photos and videos from this event. Guests can upload memories using a QR code.
-      </Text>
-
+      <Text style={styles.subtitle}>Add photos and videos from this event. Guests can upload memories using a QR code.</Text>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Add Media</Text>
-
         <Pressable style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>Upload Photo / Video</Text>
         </Pressable>
-
         <Pressable style={styles.secondaryButton} onPress={() => setCameraOpen(true)}>
           <Text style={styles.secondaryButtonText}>Open Camera</Text>
         </Pressable>
-
         <Pressable style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonText}>View Gallery</Text>
         </Pressable>
       </View>
-
       <View style={styles.aiBox}>
         <Text style={styles.aiTitle}>AI Slideshow Prompt</Text>
-        <Text style={styles.aiText}>
-          Example: “Make a fun slideshow with the best group photos.”
-        </Text>
+        <Text style={styles.aiText}>Example: "Make a fun slideshow with the best group photos."</Text>
       </View>
     </View>
   );
@@ -81,9 +63,9 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: '#F4F7FB',
+    backgroundColor: '#E8ECF0',
     padding: 24,
-    paddingTop: 90,
+    paddingTop: 60,
   },
   logo: {
     fontSize: 18,
@@ -108,6 +90,10 @@ const styles = StyleSheet.create({
     padding: 22,
     borderRadius: 20,
     marginBottom: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
   },
   cardTitle: {
     fontSize: 22,

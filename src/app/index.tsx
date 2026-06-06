@@ -16,14 +16,12 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
         <Text style={styles.title}>Welcome</Text>
-
         <TextInput
           style={styles.input}
           placeholder="Username"
           value={username}
           onChangeText={setUsername}
         />
-
         <TextInput
           style={styles.input}
           placeholder="Password"
@@ -31,7 +29,6 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
         />
-
         <TouchableOpacity style={styles.button}>
           <Text style={styles.buttonText}>Login</Text>
         </TouchableOpacity>
@@ -43,7 +40,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F3F6FB",
+    backgroundColor: "#E8ECF0",   // soft grey — easier on the eyes
     justifyContent: "center",
     paddingHorizontal: 24,
   },
@@ -51,12 +48,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     borderRadius: 24,
     padding: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
   },
   title: {
     fontSize: 36,
     fontWeight: "700",
     textAlign: "center",
     marginBottom: 32,
+    color: "#111827",
   },
   input: {
     height: 56,
@@ -65,6 +67,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 16,
     marginBottom: 16,
+    backgroundColor: "#FAFAFA",
   },
   button: {
     height: 56,
