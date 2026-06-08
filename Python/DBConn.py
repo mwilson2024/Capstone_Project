@@ -28,19 +28,37 @@ class SQLbuilder:
             print("Connection failed:", error)
             return False
 
-    def postQRtoDB(self, eventID: int, url: str):
+    def postQRtoDB(self, eventID: int, url: str, token: str, expires_at: str, max_upload: int, purpose: str, is_active: bool):
         if eventID is None or url is None:
             print('Missing Values in arguments')
             return None
-        sql = """INSERT into qrcodes(event_id, image_url)
-        VALUES  (?, ?)"""
+        sql = """INSERT into qrcodes(event_id, image_url, token, expires_at, max_uploads, purpose, is_active)
+        VALUES  (?,?,?,?,?,?,?)"""
 
         try:
             with self.engine.begin() as connection:
-                connection.exec_driver_sql(sql, (eventID, url))
+                connection.exec_driver_sql(sql, (eventID, url, token, expires_at, max_upload, purpose, is_active))
 
             print('QR Saved')
 
+        except SQLAlchemyError as e:
+            print(f'Error Occurred: {e}')
+
+    def getQRToken(self, token: str):
+        if token is None or token.strip() == "":
+            return False, "Missing Token"
+        
+        query = """SELECT * FROM qrcodes WHERE token = ?"""
+        try:
+            with self.engine.connect() as conn:
+                result = conn.exec_driver_sql(query, (token.strip(),))
+                row = result.mappings().first()
+
+                if row is None:
+                    return None
+
+            return dict(row)
+                
         except SQLAlchemyError as e:
             print(f'Error Occurred: {e}')
     
@@ -85,6 +103,24 @@ class SQLbuilder:
             print(f"Error Occurred inserting pre-filter data: {e}")
             return None 
         
+    def getPhotos(self, eventID: int):
+        query = """SELECT photoID, photoURL
+        FROM photos
+        WHERE eventID = ?"""
+
+        try:
+            with self.engine.begin() as connection:
+                result = connection.exec_driver_sql(query, eventID)
+                rows = result.fetchall()
+
+            print("Pre-filter data saved")
+            return [dict(row) for row in rows]
+
+        except SQLAlchemyError as e:
+            print(f"Error Occurred inserting pre-filter data: {e}")
+            return None 
+
+        
     def selectAll(self, table: str):
         sql = f"""
         SELECT *
@@ -98,7 +134,7 @@ class SQLbuilder:
 if __name__ == "__main__":
     db = SQLbuilder()
     db.connect()
-    db.postQRtoDB(35, "www.espn.com")
-    rows = db.selectAll('qrcodes')
+  #  db.postQRtoDB(35, "www.espn.com")
+    rows = db.selectAll('photos')
     for row in rows:
         print(row)
