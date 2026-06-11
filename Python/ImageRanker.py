@@ -14,6 +14,30 @@ class blipRanker():
         self.db = DBConn.SQLbuilder()
         self.db.connect()
 
+    def buildDict(self, photo_id: int, caption: str, moodLabel: str, moodConfScore: float, allMood: list[str], 
+                  allMoodScore: list[float], kwScore: int, kw: list[str] | str, nudityCheck: bool = False):
+       
+        allMoodStr = ",".join(allMood)
+
+        allMoodScoreStr = ",".join(str(score) for score in allMoodScore)
+
+        if isinstance(kw, list):
+            kwStr = ",".join(kw)
+        else:
+            kwStr = kw
+
+        return {
+            "photo_id": photo_id,
+            "caption": caption,
+            "mood_label": moodLabel,
+            "mood_conf_score": moodConfScore,
+            "all_mood_labels": allMoodStr,
+            "keyword_score": kwScore,
+            "keywords": kwStr,
+            "nudity_check": nudityCheck,
+            "all_mood_scores": allMoodScoreStr
+        }
+
     def selectDevice(self):
         if torch.cuda.is_available():
             device = torch.device('cuda:0')
@@ -40,7 +64,7 @@ class blipRanker():
 
         return {"keyword_score": score, "matched_keyword": matched}
     
-    def captionImg(self, photoID: int, img: str):
+    def captionImg(self, img: str):
         input = self.blipProc(img, return_tensors="pt").to(self.device)
 
         output = self.blipModel.generate(**input, max_new_tokens= 40)
@@ -49,7 +73,9 @@ class blipRanker():
 
         print(capt)
 
-    def classifyMood(self, photoID: int, img: str):
+        return capt
+    
+    def classifyMood(self, img: str):
         labels = ["a romantic wedding photo","a fun group photo", "a formal ceremony photo",
             "a candid emotional photo", "a photo of food or decorations", "a low quality random photo", "nudity"]
         
@@ -58,7 +84,7 @@ class blipRanker():
         print(best)
         return best 
     
-    def romanticScorePhotos(self, photoID: int, caption: str):
+    def romanticScorePhotos(self, caption: str):
 
         keywords = {"bride": 15,
             "groom": 15,
@@ -96,19 +122,72 @@ class blipRanker():
             return "No photos found"
         
         skippable = ["nudity", "a low quality random photo"]
+        
         results = []
-        score = 0
 
         for photo in photos:
-            print(photo)
-            caption = self.captionImg(photo["photo_id"], photo["file_path"])
-            mood = self.classifyMood(photo["photo_id"], photo["file_path"]) 
-            if mood['label'] in skippable:
-                score = 0
-                print(f"scoring skipped: {mood['label']}")
-            else:
-                score = self.romanticScorePhotos(photo["photo_id"], photo["file_path"])
+            img = photo["file_path"]
+            photo_id = photo["photo_id"]
 
+            caption = self.captionImg(img)
+            if caption is None:
+                caption = "None"
+            mood = self.classifyMood(img)
+
+            moodLabel = mood.get("label", "unknown")
+            moodConfScore = float(mood.get("score", 0)) 
+
+            allMood = mood.get("all_mood_labels", [moodLabel])
+            allMoodScore = mood.get("all_mood_scores", [moodConfScore])
+
+            keywordScore = 0
+            keywords = []
+            nudityCheck = 0
+
+            if moodLabel in skippable:
+                keywordScore = 0
+
+                if moodLabel == "nudity":
+                    nudityCheck = True
+
+                    print(f"Scoring skipped: {moodLabel}")
+            else:
+                scoreResult  = self.romanticScorePhotos(img)
+
+                if isinstance(scoreResult, (int, float)):
+                    keywordScore = float(scoreResult)
+                    keywords = []
+
+
+                elif isinstance(scoreResult, dict):
+                    keywordScore = float(scoreResult.get("keyword_score", 0))
+                    keywords = scoreResult.get("keywords", [])
+        
+            dataDict = self.buildDict(
+                photo_id=photo_id,
+                caption=caption,
+                moodLabel=moodLabel,
+                moodConfScore=moodConfScore,
+                allMood=allMood,
+                allMoodScore=allMoodScore,
+                kwScore=keywordScore,
+                kw=keywords,
+                nudityCheck=nudityCheck
+            )
+
+            ranking_id = self.db.insertImageRanking(dataDict)
+
+            results.append({
+                "photo_id": photo_id,
+                "ranking_id": ranking_id,
+                "caption": caption,
+                "mood_label": moodLabel,
+                "keyword_score": keywordScore,
+                "nudity_check": nudityCheck
+            })
+
+        return results
+        
 def main():
     print(os.getenv("HF_TOKEN"))
     test = blipRanker()
