@@ -61,7 +61,6 @@ export default function TabLayout() {
         name="camera"
         options={{
           title: "Camera",
-          tabBarLabel: false,
           tabBarIcon: ({ focused }) => (
             <TabIcon
               name="camera"
