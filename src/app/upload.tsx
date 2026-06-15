@@ -26,7 +26,7 @@ export default function UploadScreen() {
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
 
-  // ── Pick from device library ──
+  //Pick from device library
   const pickFromLibrary = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -61,7 +61,7 @@ export default function UploadScreen() {
       { text: "Clear", style: "destructive", onPress: () => setPhotos([]) },
     ]);
 
-  // ── Upload handler — swap setTimeout for your real API call ──
+  //Upload handler
   const handleUpload = async () => {
     setUploading(true);
     await new Promise((r) => setTimeout(r, 1800));
@@ -74,7 +74,6 @@ export default function UploadScreen() {
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="light-content" />
 
-      {/* ── Header ── */}
       <View style={s.header}>
         <View>
           <Text style={s.eyebrow}>DEVICE LIBRARY</Text>
@@ -93,7 +92,6 @@ export default function UploadScreen() {
           : "No photos selected"}
       </Text>
 
-      {/* ── Empty state ── */}
       {photos.length === 0 ? (
         <View style={s.empty}>
           <TouchableOpacity
@@ -122,7 +120,8 @@ export default function UploadScreen() {
           )}
         </View>
       ) : (
-        /* ── Photo grid ── */
+
+      
         <FlatList
           data={photos}
           numColumns={3}
@@ -159,7 +158,6 @@ export default function UploadScreen() {
         />
       )}
 
-      {/* ── Upload button — only shown when photos are selected ── */}
       {photos.length > 0 && (
         <View style={s.footer}>
           <TouchableOpacity
@@ -191,7 +189,6 @@ export default function UploadScreen() {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0D1117" },
 
-  // Header — matches gallery.tsx / settings.tsx pattern exactly
   header: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -296,7 +293,6 @@ const s = StyleSheet.create({
     letterSpacing: 1.8,
   },
 
-  // Success banner
   successBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -314,7 +310,6 @@ const s = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // Photo grid
   grid: {
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -352,7 +347,6 @@ const s = StyleSheet.create({
     color: "#3B82F6",
   },
 
-  // Upload footer
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
