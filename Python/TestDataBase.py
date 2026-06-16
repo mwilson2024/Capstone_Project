@@ -115,6 +115,11 @@ def create_database():
             user_id INTEGER,
             guest_id INTEGER,
 
+            CONSTRAINT photos_guest_id_fkey
+                FOREIGN KEY (guest_id)
+                REFERENCES guests(guest_id)
+                ON DELETE SET NULL,
+
             CONSTRAINT photos_user_id_fkey
                 FOREIGN KEY (user_id)
                 REFERENCES app_user(user_id)
@@ -124,6 +129,7 @@ def create_database():
         CREATE TABLE filter_photos (
             filter_id INTEGER PRIMARY KEY AUTOINCREMENT,
             photo_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             status TEXT NOT NULL DEFAULT 'pending',
             blur_score REAL NOT NULL DEFAULT 0,
@@ -175,6 +181,20 @@ def create_database():
                 ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS storyboard_items (
+            storyboard_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            photo_id INTEGER NOT NULL,
+            sequence_order INTEGER NOT NULL,
+            scene_label TEXT NOT NULL,
+            confidence REAL DEFAULT 0,
+            reason TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (event_id) REFERENCES event(idevent),
+            FOREIGN KEY (photo_id) REFERENCES photos(photo_id)
+        );
+
         CREATE INDEX idx_event_owner_id ON event(owner_id);
         CREATE INDEX idx_event_location_id ON event(location_id);
         CREATE INDEX idx_qrcodes_event_id ON qrcodes(event_id);
@@ -207,13 +227,13 @@ def create_database():
         connection.close()
 
 
-def seed_photos_from_folder():
+def seed_photos_from_folder(photoPath = "C:/CSI4999/Photos"):
     """
     Optional test loader.
     This inserts every image from C:\\CSI4999\\Photos into the photos table
     using default values for scores/status.
     """
-    PHOTO_DIR = Path("C:/CSI4999/Photos")
+    PHOTO_DIR = Path(photoPath)
     image_extensions = {".jpg", ".jpeg", ".png", ".webp"}
 
     connection = sqlite3.connect(DB_PATH)
@@ -249,8 +269,9 @@ def seed_photos_from_folder():
 
     print(f"Inserted {len(files)} photo records.")
 
+   
 
 
 if __name__ == "__main__":
     create_database()
-    seed_photos_from_folder()
+    seed_photos_from_folder(r'C:\CSI4999\Videos\Frames\videoID1')

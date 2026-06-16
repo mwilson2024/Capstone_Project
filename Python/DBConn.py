@@ -163,7 +163,41 @@ class SQLbuilder:
             print(f"Error Occurred inserting pre-filter data: {e}")
             return None 
     
-        
+    def insertImageRanking(self, dataDict: dict):
+        if dataDict is None:
+            print("Missing image ranking data")
+            return None
+
+        sql = """
+            INSERT INTO image_ranking (
+                caption,mood_label,mood_conf_score,all_mood_labels,keyword_score,
+                keywords,nudity_check,all_mood_scores,photo_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+
+        values = (
+            dataDict.get("caption", ""),
+            dataDict.get("mood_label", ""),
+            dataDict.get("mood_conf_score", 0),
+            dataDict.get("all_mood_labels", ""),
+            dataDict.get("keyword_score", 0),
+            dataDict.get("keywords", ""),
+            dataDict.get("nudity_check", 0),
+            dataDict.get("all_mood_scores", ""),
+            dataDict.get("photo_id")
+        )
+
+        try:
+            with self.engine.begin() as connection:
+                result = connection.exec_driver_sql(sql, values)
+
+            print("Image ranking data saved")
+            return result.lastrowid
+
+        except SQLAlchemyError as e:
+            print(f"Error occurred inserting image ranking data: {e}")
+            return None
+
     def selectAll(self, table: str):
         sql = f"""
         SELECT *
@@ -174,10 +208,146 @@ class SQLbuilder:
             result = conn.exec_driver_sql(sql)
             return result.fetchall()
 
+    def getApprovedPhotosForStoryboard(self, eventID: int):
+        if eventID is None:
+            print("Missing eventID")
+            return []
+
+        sql = """
+            SELECT 
+                p.photo_id,
+                p.event_id,
+                p.file_path,
+                p.photo_taken,
+                p.created_at,
+
+                f.status,
+                f.blur_score,
+                f.bright_score,
+                f.contrast_score,
+
+                c.person_count,
+                c.max_person_conf,
+                c.obj_class,
+                c.content_score
+
+            FROM photos p
+            INNER JOIN filter_photos f 
+                ON p.photo_id = f.photo_id
+
+            LEFT JOIN photos_content c 
+                ON p.photo_id = c.photo_id
+
+            WHERE p.event_id = ?
+            AND f.status = 'approved'
+
+            ORDER BY p.photo_taken ASC;
+        """
+
+        try:
+            with self.engine.begin() as connection:
+                result = connection.exec_driver_sql(sql, (eventID,))
+                rows = result.fetchall()
+
+            return [dict(row._mapping) for row in rows]
+
+        except SQLAlchemyError as e:
+            print(f"Error getting approved photos for storyboard: {e}")
+            return []
+
+    def insertStoryboardItems(self, eventID: int, storyboardRows: list, replaceExisting: bool = True):
+
+        if eventID is None:
+            print("Missing eventID")
+            return False
+
+        if not storyboardRows:
+            print("No storyboard rows to insert")
+            return False
+
+        insert_sql = """
+            INSERT INTO storyboard_items (
+                event_id,
+                photo_id,
+                sequence_order,
+                scene_label,
+                confidence,
+                reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?);
+        """
+
+        delete_sql = """
+            DELETE FROM storyboard_items
+            WHERE event_id = ?;
+        """
+
+        values = []
+
+        for row in storyboardRows:
+            values.append((
+                eventID,
+                row.get("photo_id"),
+                row.get("sequence_order"),
+                row.get("scene_label", "unknown"),
+                row.get("confidence", 0),
+                row.get("reason", "")
+            ))
+
+        try:
+            with self.engine.begin() as connection:
+
+                # Optional: clears old storyboard for this event before inserting the new one
+                if replaceExisting:
+                    connection.exec_driver_sql(delete_sql, (eventID,))
+
+                # Inserts all rows in one transaction
+                connection.exec_driver_sql(insert_sql, values)
+
+            print("Storyboard items inserted successfully")
+            return True
+
+        except SQLAlchemyError as e:
+            print(f"Error inserting storyboard items: {e}")
+            return False  
+        
+    def getStoryboardByEvent(self, eventID: int):
+        if eventID is None:
+            print("Missing eventID")
+            return []
+
+        sql = """
+            SELECT
+                s.storyboard_id,
+                s.event_id,
+                s.photo_id,
+                s.sequence_order,
+                COALESCE(s.scene_label, 'General Event Moment') AS scene_label,
+                COALESCE(s.confidence, 0) AS confidence,
+                COALESCE(s.reason, '') AS reason,
+                p.file_path
+            FROM storyboard_items s
+            INNER JOIN photos p
+                ON s.photo_id = p.photo_id
+            WHERE s.event_id = ?
+            ORDER BY s.sequence_order ASC;
+        """
+
+        try:
+            with self.engine.begin() as connection:
+                result = connection.exec_driver_sql(sql, (eventID,))
+                rows = result.fetchall()
+
+            return [dict(row._mapping) for row in rows]
+
+        except Exception as e:
+            print(f"Error getting storyboard: {e}")
+            return []
+
 if __name__ == "__main__":
     db = SQLbuilder()
     db.connect()
   #  db.postQRtoDB(35, "www.espn.com")
-    rows = db.selectAll('filter_photos')
+    rows = db.selectAll('storyboard_items')
     for row in rows:
         print(row)

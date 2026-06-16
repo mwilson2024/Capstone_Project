@@ -1,7 +1,11 @@
 from datetime import datetime, timedelta
+import DBConn
+
 class StoryBoardGen():
     def __init__(self, eventTimeGap):
         self.eventTimeGap = 20
+        self.db = DBConn.SQLbuilder()
+        self.db.connect()
 
     def parseTime(self, value):
         if value is None:
@@ -85,67 +89,70 @@ class StoryBoardGen():
     
 if __name__ == "__main__":
     # Fake photo data like what would come back from your database
-    fake_photos = [
-        {
-            "photo_id": 1,
-            "event_id": 1,
-            "file_path": r"C:\CSI4999\Photos\arrival1.jpg",
-            "photo_taken": "2026-06-15T16:00:00",
-            "created_at": "2026-06-15T16:01:00",
-            "person_count": 3,
-            "max_person_conf": 0.91,
-            "obj_class": "person",
-            "content_score": 65
-        },
-        {
-            "photo_id": 2,
-            "event_id": 1,
-            "file_path": r"C:\CSI4999\Photos\arrival2.jpg",
-            "photo_taken": "2026-06-15T16:08:00",
-            "created_at": "2026-06-15T16:09:00",
-            "person_count": 6,
-            "max_person_conf": 0.88,
-            "obj_class": "person",
-            "content_score": 80
-        },
-        {
-            "photo_id": 3,
-            "event_id": 1,
-            "file_path": r"C:\CSI4999\Photos\ceremony1.jpg",
-            "photo_taken": "2026-06-15T16:45:00",
-            "created_at": "2026-06-15T16:46:00",
-            "person_count": 2,
-            "max_person_conf": 0.95,
-            "obj_class": "person",
-            "content_score": 90
-        },
-        {
-            "photo_id": 4,
-            "event_id": 1,
-            "file_path": r"C:\CSI4999\Photos\reception1.jpg",
-            "photo_taken": "2026-06-15T18:10:00",
-            "created_at": "2026-06-15T18:11:00",
-            "person_count": 0,
-            "max_person_conf": 0.0,
-            "obj_class": "dining table, chair",
-            "content_score": 55
-        },
-        {
-            "photo_id": 5,
-            "event_id": 1,
-            "file_path": r"C:\CSI4999\Photos\dancing1.jpg",
-            "photo_taken": "2026-06-15T20:30:00",
-            "created_at": "2026-06-15T20:31:00",
-            "person_count": 10,
-            "max_person_conf": 0.89,
-            "obj_class": "person",
-            "content_score": 95
-        }
-    ]
-
+    # fake_photos = [
+    #     {
+    #         "photo_id": 1,
+    #         "event_id": 1,
+    #         "file_path": r"C:\CSI4999\Photos\arrival1.jpg",
+    #         "photo_taken": "2026-06-15T16:00:00",
+    #         "created_at": "2026-06-15T16:01:00",
+    #         "person_count": 3,
+    #         "max_person_conf": 0.91,
+    #         "obj_class": "person",
+    #         "content_score": 65
+    #     },
+    #     {
+    #         "photo_id": 2,
+    #         "event_id": 1,
+    #         "file_path": r"C:\CSI4999\Photos\arrival2.jpg",
+    #         "photo_taken": "2026-06-15T16:08:00",
+    #         "created_at": "2026-06-15T16:09:00",
+    #         "person_count": 6,
+    #         "max_person_conf": 0.88,
+    #         "obj_class": "person",
+    #         "content_score": 80
+    #     },
+    #     {
+    #         "photo_id": 3,
+    #         "event_id": 1,
+    #         "file_path": r"C:\CSI4999\Photos\ceremony1.jpg",
+    #         "photo_taken": "2026-06-15T16:45:00",
+    #         "created_at": "2026-06-15T16:46:00",
+    #         "person_count": 2,
+    #         "max_person_conf": 0.95,
+    #         "obj_class": "person",
+    #         "content_score": 90
+    #     },
+    #     {
+    #         "photo_id": 4,
+    #         "event_id": 1,
+    #         "file_path": r"C:\CSI4999\Photos\reception1.jpg",
+    #         "photo_taken": "2026-06-15T18:10:00",
+    #         "created_at": "2026-06-15T18:11:00",
+    #         "person_count": 0,
+    #         "max_person_conf": 0.0,
+    #         "obj_class": "dining table, chair",
+    #         "content_score": 55
+    #     },
+    #     {
+    #         "photo_id": 5,
+    #         "event_id": 1,
+    #         "file_path": r"C:\CSI4999\Photos\dancing1.jpg",
+    #         "photo_taken": "2026-06-15T20:30:00",
+    #         "created_at": "2026-06-15T20:31:00",
+    #         "person_count": 10,
+    #         "max_person_conf": 0.89,
+    #         "obj_class": "person",
+    #         "content_score": 95
+    #     }
+    # ]
+    db = DBConn.SQLbuilder()
+    db.connect()
+    fake_photos = db.getApprovedPhotosForStoryboard(1)
     generator = StoryBoardGen(20)
 
     storyboard = generator.generateSeq(fake_photos)
+    db.insertStoryboardItems(1, storyboard)
 
     print("\nGenerated Storyboard:")
     print("-" * 60)
