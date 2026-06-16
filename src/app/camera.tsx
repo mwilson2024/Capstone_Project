@@ -30,7 +30,7 @@ type CapturedPhoto = {
   timestamp: number;
 };
 
-// ─── Permission Gate ──────────────────────────────────────────────────────────
+//Permission Gate
 function PermissionScreen({ onRequest }: { onRequest: () => void }) {
   return (
     <View style={perm.container}>
@@ -102,7 +102,7 @@ const perm = StyleSheet.create({
   },
 });
 
-// ─── Photo Preview Modal ──────────────────────────────────────────────────────
+//Photo Preview Modal
 function PhotoPreview({
   photo,
   onDiscard,
@@ -121,8 +121,7 @@ function PhotoPreview({
           style={preview.image}
           resizeMode="contain"
         />
-
-        {/* Top bar */}
+        
         <View style={preview.topBar}>
           <TouchableOpacity style={preview.iconBtn} onPress={onDiscard}>
             <Ionicons name="close" size={24} color="#F0F4FF" />
@@ -131,7 +130,6 @@ function PhotoPreview({
           <View style={{ width: 40 }} />
         </View>
 
-        {/* Bottom actions */}
         <View style={preview.bottomBar}>
           <TouchableOpacity style={preview.discardBtn} onPress={onDiscard} activeOpacity={0.8}>
             <Ionicons name="trash-outline" size={20} color="#F87171" />
@@ -221,7 +219,7 @@ const preview = StyleSheet.create({
   },
 });
 
-// ─── Thumbnail Strip ──────────────────────────────────────────────────────────
+// Thumbnail Strip
 function ThumbnailStrip({
   photos,
   onTap,
@@ -257,7 +255,7 @@ const thumb = StyleSheet.create({
   },
 });
 
-// ─── Camera Screen ────────────────────────────────────────────────────────────
+// Camera Screen
 export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>("back");
@@ -335,7 +333,7 @@ export default function CameraScreen() {
     setPreviewPhoto(null);
   };
 
-  // ── Permission gate ──
+  // Permission gate
   if (!permission) return <View style={{ flex: 1, backgroundColor: "#0D1117" }} />;
   if (!permission.granted) return <PermissionScreen onRequest={requestPermission} />;
 
@@ -345,7 +343,6 @@ export default function CameraScreen() {
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* Camera Viewfinder */}
       <CameraView
         ref={cameraRef}
         style={styles.camera}
@@ -354,7 +351,6 @@ export default function CameraScreen() {
         zoom={zoom}
         onCameraReady={() => setIsReady(true)}
       >
-        {/* Corner brackets overlay */}
         <View style={styles.overlay} pointerEvents="none">
           <View style={styles.bracketTL} />
           <View style={styles.bracketTR} />
@@ -363,7 +359,6 @@ export default function CameraScreen() {
         </View>
       </CameraView>
 
-      {/* Top Controls */}
       <SafeAreaView style={styles.topBar}>
         <TouchableOpacity style={styles.controlBtn} onPress={cycleFlash}>
           <Ionicons name={flashIcons[flash]} size={22} color={flash === "on" ? "#FCD34D" : "#F0F4FF"} />
@@ -378,10 +373,8 @@ export default function CameraScreen() {
         </TouchableOpacity>
       </SafeAreaView>
 
-      {/* Bottom Controls */}
       <View style={styles.bottomBar}>
 
-        {/* Thumbnail strip */}
         <View style={styles.stripRow}>
           <ThumbnailStrip
             photos={capturedPhotos}
@@ -389,9 +382,7 @@ export default function CameraScreen() {
           />
         </View>
 
-        {/* Shutter row */}
         <View style={styles.shutterRow}>
-          {/* Last photo thumbnail / placeholder */}
           <View style={styles.sideSlot}>
             {capturedPhotos.length > 0 ? (
               <TouchableOpacity onPress={() => setPreviewPhoto(capturedPhotos[0])}>
@@ -408,7 +399,6 @@ export default function CameraScreen() {
             )}
           </View>
 
-          {/* Shutter button */}
           <TouchableOpacity
             style={[styles.shutter, isTakingPhoto && styles.shutterPressed]}
             onPress={takePhoto}
@@ -418,7 +408,6 @@ export default function CameraScreen() {
             <View style={styles.shutterInner} />
           </TouchableOpacity>
 
-          {/* Flip button */}
           <TouchableOpacity
             style={[styles.sideSlot, styles.flipBtn]}
             onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
@@ -429,7 +418,6 @@ export default function CameraScreen() {
         </View>
       </View>
 
-      {/* Preview modal */}
       {previewPhoto && (
         <PhotoPreview
           photo={previewPhoto}
@@ -452,7 +440,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Viewfinder bracket overlay
   overlay: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -501,7 +488,6 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
 
-  // Top bar
   topBar: {
     position: "absolute",
     top: 0,
@@ -541,7 +527,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Bottom bar
   bottomBar: {
     position: "absolute",
     bottom: 0,
