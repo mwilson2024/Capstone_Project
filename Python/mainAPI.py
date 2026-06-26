@@ -98,7 +98,8 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
     inserted = db.insertUploads(uploadRows)
     mediaInserts = db.insertMediaRecordsFromUploads(inserted)
 
-    nr.runProcess(eventID, fType)
+    nr.runProcess(eventID, 'photo')
+    nr.runProcess(eventID, 'video')
         
     return {
         "event_id": eventID,
@@ -109,4 +110,4 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
         "video_records_inserted": len(mediaInserts["videos"]),
         "results": saved
     }
-        
+  #  if __name__ == "__main":

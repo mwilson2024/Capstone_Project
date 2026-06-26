@@ -14,6 +14,7 @@ class SQLbuilder:
             raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
 
         self.client: Client = create_client(self.supabase_url, self.service_key)
+    
 
     def connect(self):
         try:
@@ -325,8 +326,6 @@ class SQLbuilder:
                     "upload_status": item.get("upload_status", "uploaded"),
                     "processing_status": item.get("processing_status", "not_started"),
 
-                    "photo_id": item.get("photo_id"),
-                    "video_id": item.get("video_id")
                 })
 
             result = (
@@ -518,6 +517,6 @@ if __name__ == "__main__":
     if db.connect():
         print("Connected to Supabase.")
 
-    rows = db.selectAll('storyboard_items')
+    rows = db.selectAll('app_user')
     for row in rows or []:
         print(row)
