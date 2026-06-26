@@ -4,6 +4,7 @@ from transformers import (BlipProcessor, BlipForConditionalGeneration, pipeline)
 import os
 import DBConn
 import re
+from ProjectHelper import Helpers as ph
 
 class blipRanker():
     def __init__(self):
@@ -284,20 +285,12 @@ class blipRanker():
 
         return dataDict
     
-    def batchRun(self, eventID: int):
-        photos = self.db.getPhotos(eventID)
-
-        if photos is None:
-            return "No photos found"
+    def batchRunIR(self, media: list[dict], dtype: str = 'photo_id'):
+        if media is None:
+            err = "No files found"
+            raise ValueError(err)
         
-        results = []
-
-        for photo in photos:
-            res = self.analyze(photo["photo_id"], photo["file_path"])
-            results.append(res)
-        
-        self.db.insertImageRanking(results)
-        return results
+        return ph.batchRun(media, self.analyze, self.db.insertImageRanking, dtype)
 
 def main():
     test = blipRanker()

@@ -90,8 +90,8 @@ class Helpers():
             print(f"Metadata error: {e}")
             return metadata
     @staticmethod
-    def getIDNum(s:str, pos:int):
-        return int(s.split('_')[pos])
+    def getIDNum(s:str, pos:int, symbol : str = '_'):
+        return int(s.split(symbol)[pos])
     
     @staticmethod    
     def formatTimeStamps(value):
@@ -171,6 +171,19 @@ class Helpers():
             return True
         else:
             return False
+        
+    @staticmethod
+    def batchRun(mediaList: list[dict], procFunc, insFunc, dtype: str = 'photo_id'):
+        results = []
+
+        for media in mediaList:
+            res = procFunc(media[dtype], media["file_path"])
+            if dtype == 'frame_id':
+                res["frame_id"] = res.pop("photo_id")
+            results.append(res)
+
+        insFunc(results, dtype)
+        return results
 
 def main():
     proj = Helpers()

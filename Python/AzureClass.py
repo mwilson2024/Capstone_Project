@@ -50,6 +50,49 @@ class blobHandler:
     def downloadBlob(self, blobName):
         blobClient = self.containerClient.get_blob_client(blobName)
         return blobClient.download_blob().readall()
+    
+    def downloadBlobToFile(self, blobName: str, localPath: str):
+        blob_client = self.containerClient.get_blob_client(blobName)
+
+        data = blob_client.download_blob().readall()
+
+        with open(localPath, "wb") as file:
+            file.write(data)
+
+        return localPath
+    
+    def downloadBlobToFile(self, blobName: str, localPath: str):
+        blob_client = self.containerClient.get_blob_client(blobName)
+
+        with open(localPath, "wb") as file:
+            download_stream = blob_client.download_blob()
+            file.write(download_stream.readall())
+
+        return localPath
+    
+    def downloadToTemp(self, photos: list[dict], tempDir: Path, retID: str = 'photo_id'):
+        downloaded = []
+
+        for photo in photos:
+            photoID = photo[retID]
+            blobName = photo["blob_name"]
+
+            fileName = Path(blobName).name
+            localPath = tempDir / fileName
+
+            try:
+                self.downloadBlobToFile(blobName, str(localPath))
+
+                downloaded.append({retID: photoID,"blob_name": blobName,"file_path": str(localPath)})
+
+                print(f"Downloaded {retID} {photoID}: {localPath}")
+
+            except Exception as e:
+                print(f"Failed downloading photo_id {photoID}: {e}")
+                downloaded.append({retID: photoID,"blob_name": blobName,"local_path": None,"error": str(e)})
+            
+            
+        return downloaded
 if __name__ == "__main__":
     u = blobHandler()
     print(u)

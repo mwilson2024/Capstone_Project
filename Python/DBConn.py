@@ -80,16 +80,19 @@ class SQLbuilder:
             print(f'Error Occurred: {e}')
             return None
 
-    def insertPreFilter(self, results: list[dict]):
+    def insertPreFilter(self, results: list[dict], dtype: str = 'photo_id'):
+        
         if not results:
             print("No filter results to insert.")
             return None
+        table = 'photo_filter'
 
-        table = 'filter_photos'
+        if dtype == 'frame_id':
+            table = 'video_filter'
 
         values = [
             {
-                "photo_id": item.get("photo_id"),
+                dtype: item.get(dtype),
                 "status": item.get("status", "pending"),
                 "reason": item.get("reason", ""),
                 "blur_score": item.get("blur_score", 0),
@@ -107,16 +110,19 @@ class SQLbuilder:
         ]
         return self.insertToDB(values, table)
 
-    def insertContent(self, results: list[dict]):
+    def insertContent(self, results: list[dict], dt = 'photo_id'):
         if not results:
             print("No filter results to insert.")
             return None
+        
+        table = 'photo_content'
 
-        table = 'photos_content'
+        if dt == 'frame_id':
+            table = 'video_content'
 
         values = [
             {
-                "photo_id": item.get("photo_id"),
+                dt: item.get(dt),
                 "person_count": item.get("person_count", 0),
                 "max_person_conf": item.get("max_person_conf", 0.0),
                 "obj_class": item.get("obj_class", ""),
@@ -125,37 +131,17 @@ class SQLbuilder:
             }
             for item in results
         ]
+        return self.insertToDB(values, table)
 
-        try:
-            self.client.table(table).insert(values).execute()
-            return True
-
-        except Exception as e:
-            print(f"Error occurred batch inserting pre-filter data: {e}")
-            return None
-
-    def getPhotos(self, eventID: int):
-        try:
-            result = (
-                self.client.table("photos")
-                .select("photo_id, file_path")
-                .eq("event_id", eventID)
-                .execute()
-            )
-
-            print("Pre-filter data saved")
-            return result.data
-
-        except Exception as e:
-            print(f"Error Occurred inserting pre-filter data: {e}")
-            return None
-
-    def insertImageRanking(self, dataDict: list[dict]):
+    def insertImageRanking(self, dataDict: list[dict], dtype: str ='photo_id'):
         if dataDict is None:
             print("Missing image ranking data")
             return None
 
-        table = 'image_ranking'
+        table ='photo_ranking'
+
+        if dtype == 'frame_id':
+            table = 'video_ranking'
 
         values = [{
             "caption": item.get("caption", ""),
@@ -166,7 +152,7 @@ class SQLbuilder:
             "keywords": item.get("keywords", ""),
             "nudity_check": item.get("nudity_check", 0),
             "all_mood_scores": item.get("all_mood_scores", ""),
-            "photo_id": item.get("photo_id")
+            dtype: item.get(dtype)
         } for item in dataDict]
 
         return self.insertToDB(values, table)
@@ -312,45 +298,7 @@ class SQLbuilder:
             "file_size": fileSize
         }
         return self.insertToDB(values, table)
-    
-    def getVideos(self, eventID: int):
-        try:
-            result = (
-                self.client.table("videos")
-                .select("video_id, file_path")
-                .eq("event_id", eventID)
-                .execute()
-            )
-
-            print("Video Data obtained")
-            return result.data
-
-        except Exception as e:
-            print(f"Error Occurred: {e}")
-            return None
-    
-    def insertVideoPreFilter(self, results: list):
-        table = 'filter_videos'
-        values = []
-        for result in results:
-            values.append({
-                "video_id": result.get("video_id"),
-                "status": result.get("status"),
-                "reason": result.get("reason"),
-                "blur_score": result.get("blur_score"),
-                "bright_score": result.get("bright_score"),
-                "contrast_score": result.get("contrast_score"),
-                "width": result.get("width"),
-                "height": result.get("height"),
-                "image_hash": result.get("image_hash"),
-                "camera_model": result.get("camera_model"),
-                "gps": result.get("gps"),
-                "photo_original_date": result.get("photo_original_date"),
-                "user_approved": result.get("user_approved")
-            })
-
-        return self.insertToDB(values, table)
-    
+            
     def insertUploads(self, uploads: list[dict]):
         if not uploads:
             print("No uploads to insert.")
@@ -394,8 +342,177 @@ class SQLbuilder:
         except Exception as e:
             print(f"Error inserting uploads: {e}")
             return None
+    
+    def insertMediaRecordsFromUploads(self, insertedUploads: list[dict]):
+        if not insertedUploads:
+            print("No inserted uploads to process.")
+            return {
+                "photos": [],
+                "videos": []
+            }
 
+        inserted_photos = []
+        inserted_videos = []
 
+        try:
+            photoRows = []
+            videoRows = []
+
+            for upload in insertedUploads:
+                media_type = upload["media_type"]
+                upload_id = upload["upload_id"]
+                event_id = upload["event_id"]
+
+                if media_type == "photo":
+                    photoRows.append({
+                        "event_id": event_id,
+                        "upload_id": upload_id
+                    })
+
+                elif media_type == "video":
+                    videoRows.append({
+                        "event_id": event_id,
+                        "upload_id": upload_id,
+                        "title": upload.get("original_file_name", "Event Video"),
+                        "status": "pending"
+                    })
+
+            if photoRows:
+                photo_result = (
+                    self.client
+                    .table("photos")
+                    .insert(photoRows)
+                    .execute()
+                )
+
+                inserted_photos = photo_result.data
+                print(f"Inserted {len(inserted_photos)} photo row(s).")
+
+            if videoRows:
+                video_result = (
+                    self.client
+                    .table("videos")
+                    .insert(videoRows)
+                    .execute()
+                )
+
+                inserted_videos = video_result.data
+                print(f"Inserted {len(inserted_videos)} video row(s).")
+
+            self.updateUploadsWithMediaIds(inserted_photos, inserted_videos)
+
+            return {
+                "photos": inserted_photos,
+                "videos": inserted_videos
+            }
+
+        except Exception as e:
+            print(f"Error inserting media records: {e}")
+            return {
+                "photos": inserted_photos,
+                "videos": inserted_videos
+            }
+
+    def updateUploadsWithMediaIds(self, photos: list[dict], videos: list[dict]):
+        try:
+            for photo in photos:
+                self.client.table("uploads").update({
+                    "photo_id": photo["photo_id"]
+                }).eq("upload_id", photo["upload_id"]).execute()
+
+            for video in videos:
+                self.client.table("uploads").update({
+                    "video_id": video["video_id"]
+                }).eq("upload_id", video["upload_id"]).execute()
+
+            print("Updated uploads with photo_id/video_id.")
+
+        except Exception as e:
+            print(f"Error updating uploads with media ids: {e}")
+
+    def getMedia(self, eventID: int, mediaType: str):
+
+        if eventID is None:
+            print("Missing eventID")
+            return []
+
+        if mediaType not in ("photo", "video"):
+            print(f"Invalid mediaType: {mediaType}")
+            return []
+
+        table = "photos" if mediaType == "photo" else "videos"
+        id_field = "photo_id" if mediaType == "photo" else "video_id"
+        
+        uploads_select = (
+            "uploads!photos_upload_id_fkey" if mediaType == "photo" else "uploads"
+        )
+
+        try:
+            result = (
+                self.client
+                .table(table)
+                .select(f"""
+                    {id_field},
+                    event_id,
+                    upload_id,
+                    {uploads_select} (
+                        blob_name,
+                        file_path
+                    )
+                """)
+                .eq("event_id", eventID)
+                .execute()
+            )
+
+            rows = result.data or []
+            media_list = []
+
+            for row in rows:
+                upload = row.get("uploads") or {}
+
+                media_list.append({
+                    id_field: row.get(id_field),
+                    "blob_name": upload.get("blob_name"),
+                    "file_path": upload.get("file_path"),
+                })
+
+            print(f"{mediaType.capitalize()} data obtained: {len(media_list)} item(s)")
+            return media_list
+
+        except Exception as e:
+            print(f"Error occurred getting {mediaType}: {e}")
+            return []
+        
+    def upsertVideoFrames(self, frames: list[dict]):
+        if not frames:
+            print("No frames provided")
+            return []
+
+        try:
+            result = self.client.rpc("upsert_video_frames", {
+                "p_frames": frames
+            }).execute()
+
+            inserted = result.data or []
+
+            # Build a lookup from (video_id, frame_num) -> file_path from the input
+            file_path_lookup = {
+                (f["video_id"], f["frame_num"]): f.get("file_path")
+                for f in frames
+            }
+
+            # Attach file_path back onto each returned row
+            for row in inserted:
+                key = (row.get("video_id"), row.get("frame_num"))
+                row["file_path"] = file_path_lookup.get(key)
+
+            print(f"Upserted {len(inserted)} video frame(s)")
+            return inserted
+
+        except Exception as e:
+            print(f"Error occurred upserting video frames: {e}")
+            return []
+        
 if __name__ == "__main__":
     db = SQLbuilder()
     if db.connect():

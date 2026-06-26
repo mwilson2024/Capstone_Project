@@ -1,37 +1,39 @@
 import os
-
+import math
 import cv2 as cv
 from pathlib import Path
-import tempfile
 import DBConn
+import os
 
 class ExtractVidFrames():
     def __init__(self):
         self.db = DBConn.SQLbuilder()
         self.db.connect()
         
-    def extractFrames(self, inPath: str, outPath: str, eventID: int, videoID: int, setSeconds: int= 3):
+    def extractFrames(self, inPath: str, outPath: str, videoID: int, eventID: int, setSeconds: int= 3):
 
         vidPath = Path(inPath)
-        #outPut = Path(outPath) / f"videoID_{videoID}"
-        #outPut.mkdir(parents=True, exist_ok=True)
-
+    
         if not vidPath.exists():
             print(f'Video not found: {vidPath}')
             return []
         
         cap = cv.VideoCapture(str(vidPath))
+
         if not cap.isOpened():
             print(f"could not open video: {vidPath}")
             return []
         
         fps = cap.get(cv.CAP_PROP_FPS)
+        totFrames = cap.get(cv.CAP_PROP_FRAME_COUNT)
 
         if fps == 0:
             fps = 30
 
         frameInt = int(fps * setSeconds)
+        frameForVid = int(math.ceil(totFrames / frameInt))
 
+       # frameData = {'saved_frames': str, "time_stamp": float}
         savedFrames = []
         frameCount = 0
         savedCount = 0
@@ -40,35 +42,44 @@ class ExtractVidFrames():
             outPut = Path(outPath) / f"video_ID_{videoID}"
             outPut.mkdir(parents=True, exist_ok=True)
             success, frame = cap.read()
-
+  
             if not success: 
                 break
 
             if frameCount % frameInt == 0:
+                frameSec = frameCount / fps 
                 frameFile = outPut/f'{vidPath.stem}_frame_{savedCount}.jpg'
                 cv.imwrite(str(frameFile), frame)
-                savedFrames.append(str(frameFile))
+                frameData = {'event_id': eventID, 'video_id': videoID, 'file_path': str(frameFile), 'frame_num': frameCount, 'time_stamp': round(frameSec, 4)}
+                savedFrames.append(frameData)
                 savedCount += 1
-                print(f"{savedCount}/{frameInt}.")
+                print(f"{savedCount}/{frameForVid}")
 
             frameCount += 1
         cap.release()
-
-        return savedFrames
+        frameData = self.db.upsertVideoFrames(savedFrames) #getting the frame_id back 
+     
+        return frameData
     
-    def batchRun(self, eventID: int, outPath: str):
-        if not os.path.exists(outPath):
-            os.makedirs(outPath)
-        tempDir = tempfile.mkdtemp(prefix=f"event_{eventID}_", suffix="_frames", dir=outPath)
-        videos = self.db.getVideos(eventID)
+    def batchRun(self, videos: list[dict], tempDir: str, eventID: int = None):
+        if not os.path.exists(tempDir):
+            #os.makedirs(tempDir)
+            print(f'No Directory found: {tempDir}')
+        #tempDir = tempfile.mkdtemp(prefix=f"event_{eventID}_", suffix="_frames", dir=outPath)
+        #if eventID:
+        #    videos = self.db.getMedia(eventID, 'video')
+  
         if not videos:
             print("No videos found for the given event.")
             return
-
+        results = []
         for video in videos:
-            self.extractFrames(video["file_path"], tempDir, eventID, video["video_id"])
-
+            res = self.extractFrames(video["file_path"], tempDir, video["video_id"], eventID)
+            results.extend(res)
             print(f"Extracted frames for event {eventID} to {tempDir}")
+            os.remove(video["file_path"])
+
+        return results    
 
 def main():
     frames = ExtractVidFrames()

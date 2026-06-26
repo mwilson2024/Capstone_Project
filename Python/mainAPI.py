@@ -1,11 +1,6 @@
-import ContentScorer
-import ImageRanker
-import PreFilter
-import VideoExtraction
 import fastapi
 import qrGen
 from pydantic import BaseModel
-import os
 from fastapi import File, UploadFile, Form
 from typing import List
 import DBConn
@@ -13,20 +8,12 @@ import AzureClass
 from pathlib import Path
 from DataStruct import uploadResults as dc
 from dataclasses import asdict
+import newRunner
 
+nr = newRunner.newRunner()
 blob = AzureClass.blobHandler()
 db = DBConn.SQLbuilder()
 db.connect()
-
-def buildPhotoModelDB(eventID: int):
-    cs = ContentScorer.ContentScoring()
-    ir = ImageRanker.blipRanker()
-    pf = PreFilter.ImgQualFilt()
-    ve = VideoExtraction.ExtractVidFrames()
-
-    pf.batchRunPhotos(eventID)
-    cs.batchRun(eventID)
-    ir.batchRun(eventID)
 
 class uploadModel(BaseModel):
     eventID: int
@@ -94,6 +81,8 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
             res = await blob.fileUpload(file, eventID, fType)
             saved.append(asdict(dc(res["original_name"],"saved", fType, res["size_bytes"], res["url"], res["blob_name"], 'success', res["content_type"] )))
             print(f'File: {res["url"]}, Size: {res["size_bytes"]} bytes, Type: {fType}')
+
+   
         except Exception as e:
             saved.append(asdict(dc(orgName, "failed", None, None, None, None, str(e))))
 
@@ -107,8 +96,17 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
         "media_type": item["file_type"],"mime_type": item["content_type"],"file_size": item["size_bytes"],"upload_status": "uploaded","processing_status": "not_started"})
 
     inserted = db.insertUploads(uploadRows)
+    mediaInserts = db.insertMediaRecordsFromUploads(inserted)
 
+    nr.runProcess(eventID, fType)
         
-    return {"event_id": eventID,"user_id": userID,"uploaded": len([item for item in saved if item["status"] == "saved"]),
-        "db_records_inserted": len(inserted) if inserted else 0,"results": saved}
+    return {
+        "event_id": eventID,
+        "user_id": userID,
+        "uploaded": len([item for item in saved if item["status"] == "saved"]),
+        "db_records_inserted": len(inserted) if inserted else 0,
+        "photo_records_inserted": len(mediaInserts["photos"]),
+        "video_records_inserted": len(mediaInserts["videos"]),
+        "results": saved
+    }
         

@@ -19,7 +19,7 @@ class ContentScoring:
         else:
             reasonStr = "N/A"
 
-        return{"id": photoID,
+        return{"photo_id": photoID,
                "person_count": perCount,
                "max_person_conf": maxPerConf,
                "obj_class": objClass,
@@ -61,61 +61,14 @@ class ContentScoring:
         #print(f'People: {perCnt}\nCofidence: {conf}\nMax perConf: {maxPerCof}\nContent Score: {contScore}\nDetected Objects {detectedObj}')
         return(self.buildDict(photo_id, perCnt, maxPerCof, classNames,conf, contScore, isVideo=isVideo))
     
-    def batchRun(self, eventID):
-
-        photos = self.db.getPhotos(eventID)
-
-        if photos is None:
-            return "No photos found"
-        
-        results = []
-
-        for photo in photos:
-            res = self.analyze(photo["photo_id"], photo["file_path"])
-            results.append(res)
-
-        self.db.insertContent(results)
-        return results
     
-    def batchRunVideos(self, tempDir: str, eventID: int):
-        ext = ('.jpg', '.jpeg', '.png')
-        results = []
-        evID = ph.getIDNum(Path(tempDir).name, pos = 1)
-        tempPath = Path(tempDir)
-        if not tempPath.exists():
-            return "Invalid temp directory"
-
-        if evID != eventID: 
-                err = f"Event ID mismatch: expected {eventID}, got {evID}"
-                print(err)
-                return "Event ID mismatch"
-
-        for videoFolder in tempPath.iterdir():
-
-            if not videoFolder.is_dir():
-                continue
-
-            vidID = ph.getIDNum(videoFolder.name, pos=2)
-
-            print(f"Processing video folder: {videoFolder.name}, video_id: {vidID}")
-
-            for frameNum, framePath in enumerate(videoFolder.iterdir()):
-
-                if not framePath.is_file():
-                    continue
-
-                if not framePath.name.lower().endswith(ext):
-                    continue
-
-                res = self.analyze(frameNum, str(framePath), isVideo=True)
-                res["video_id"] = vidID
-                results.append(res)
-
-                print(f"Processed video {vidID}, frame {frameNum}: {framePath.name}")
+    def batchRunCS(self, media: list[dict], dtype: str = 'photo_id'):
+        if media is None:
+            err = "No files found"
+            raise ValueError(err)
         
-        self.db.insertVideoPreFilter(results)
-
-        return results
+        return ph.batchRun(media, self.analyze, self.db.insertContent, dtype)
+    
 def main():
     scorer = ContentScoring()
     #scorer.batchRun(1)
