@@ -273,21 +273,11 @@ export default function CameraScreen() {
     auto: "flash-outline",
   };
 
-  const cycleFlash = () => {
-    setFlash((prev) => {
-      if (prev === "off") return "on";
-      if (prev === "on") return "auto";
-      return "off";
-    });
-  };
+  const cycleFlash = () =>
+    setFlash((prev) => (prev === "off" ? "on" : prev === "on" ? "auto" : "off"));
 
-  const cycleZoom = () => {
-    setZoom((prev) => {
-      if (prev === 0) return 0.5;
-      if (prev === 0.5) return 1;
-      return 0;
-    });
-  };
+  const cycleZoom = () =>
+    setZoom((prev) => (prev === 0 ? 0.5 : prev === 0.5 ? 1 : 0));
 
   const takePhoto = useCallback(async () => {
     if (!cameraRef.current || !isReady || isTakingPhoto) return;

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 
 function TabIcon({
@@ -14,34 +13,27 @@ function TabIcon({
   focused: boolean;
   isCamera?: boolean;
 }) {
-  if (isCamera) {
-    return React.createElement(
-      View,
-      { style: [styles.cameraIconWrapper, focused && styles.cameraIconFocused] },
-      React.createElement(Ionicons, {
-        name,
-        size: 22,
-        color: focused ? "#fff" : "#93C5FD",
-      })
-    );
-  }
-
-  return React.createElement(
-    View,
-    { style: [styles.iconWrapper, focused && styles.iconFocused] },
-    React.createElement(Ionicons, {
-      name,
-      size: 22,
-      color,
-    })
+  return (
+    <View
+      style={
+        isCamera
+          ? [styles.cameraIconWrapper, focused && styles.cameraIconFocused]
+          : [styles.iconWrapper, focused && styles.iconFocused]
+      }
+    >
+      <Ionicons
+        name={name}
+        size={22}
+        color={isCamera ? (focused ? "#fff" : "#93C5FD") : color}
+      />
+    </View>
   );
 }
 
 export default function TabLayout() {
-  return React.createElement(
-    Tabs,
-    {
-      screenOptions: {
+  return (
+    <Tabs
+      screenOptions={{
         headerShown: false,
         tabBarStyle: styles.tabBar,
         tabBarItemStyle: {
@@ -53,58 +45,58 @@ export default function TabLayout() {
         tabBarInactiveTintColor: "#3B4A62",
         tabBarLabelStyle: styles.tabLabel,
         tabBarShowLabel: true,
-      },
-    },
-    React.createElement(Tabs.Screen, {
-      name: "settings",
-      options: {
-        title: "Settings",
-        tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) =>
-          React.createElement(TabIcon, {
-            name: focused ? "settings" : "settings-outline",
-            color,
-            focused,
-          }),
-      },
-    }),
-    React.createElement(Tabs.Screen, {
-      name: "gallery",
-      options: {
-        title: "Gallery",
-        tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) =>
-          React.createElement(TabIcon, {
-            name: focused ? "images" : "images-outline",
-            color,
-            focused,
-          }),
-      },
-    }),
-    React.createElement(Tabs.Screen, {
-      name: "camera",
-      options: {
-        title: "Camera",
-        tabBarLabelStyle: { marginLeft: 12 },
-        tabBarIcon: ({ focused }: { focused: boolean }) =>
-          React.createElement(TabIcon, {
-            name: "camera",
-            color: "#fff",
-            focused,
-            isCamera: true,
-          }),
-      },
-    }),
-    React.createElement(Tabs.Screen, {
-      name: "upload",
-      options: {
-        title: "Upload",
-        tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) =>
-          React.createElement(TabIcon, {
-            name: focused ? "cloud-upload" : "cloud-upload-outline",
-            color,
-            focused,
-          }),
-      },
-    }),
+      }}
+    >
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Settings",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? "settings" : "settings-outline"}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="gallery"
+        options={{
+          title: "Gallery",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? "images" : "images-outline"}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="camera"
+        options={{
+          title: "Camera",
+          tabBarLabelStyle: { marginLeft: 12 },
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="camera" color="#fff" focused={focused} isCamera />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="upload"
+        options={{
+          title: "Upload",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              name={focused ? "cloud-upload" : "cloud-upload-outline"}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
 
