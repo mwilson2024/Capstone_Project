@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -9,14 +10,72 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import FormModal, { FormField } from "@/components/FormModal";
+
+const API_URL = "http://127.0.0.1:8000";
+
+// Maps to the backend's userCreate model (role defaults to "user", phone sent blank).
+const ACCOUNT_FIELDS: FormField[] = [
+  { key: "user_name", label: "Username", placeholder: "Choose a username", autoCapitalize: "none" },
+  { key: "first_name", label: "First Name", placeholder: "Your first name" },
+  { key: "last_name", label: "Last Name", placeholder: "Your last name" },
+  { key: "email", label: "Email", placeholder: "you@email.com", keyboardType: "email-address" },
+  { key: "pwd", label: "Password", placeholder: "Create a password", secure: true },
+];
+
+const EVENT_FIELDS: FormField[] = [
+  { key: "event_name", label: "Event Name", placeholder: "e.g. Sarah's Wedding" },
+  { key: "date", label: "Date", placeholder: "MM/DD/YYYY" },
+  { key: "location", label: "Location", placeholder: "Where is it?" },
+  { key: "description", label: "Description", placeholder: "Tell guests about the event", multiline: true },
+];
 
 export default function WelcomeScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [modal, setModal] = useState<null | "account" | "event">(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleLogin = () => {
     // Handle login logic here
     console.log("Login pressed", { username, password });
+  };
+
+  const handleCreateAccount = async (values: Record<string, string>) => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/users/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...values, phone: "", role: "user" }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail ?? "Could not create account.");
+      }
+
+      const user = await response.json();
+      console.log("Account created:", user);
+      setModal(null);
+      Alert.alert("Account Created", `Welcome, ${user.first_name}!`);
+    } catch (error: any) {
+      Alert.alert("Sign Up Failed", error.message ?? "Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // No backend event-creation endpoint yet — stubbed for now.
+  const handleCreateEvent = (values: Record<string, string>) => {
+    console.log("Create event:", values);
+    setModal(null);
+    Alert.alert("Event Created", `"${values.event_name}" has been created.`);
   };
 
   return (
@@ -86,14 +145,22 @@ export default function WelcomeScreen() {
 
           {/* Bottom Links Row */}
           <View style={styles.linksRow}>
-            <TouchableOpacity style={styles.linkButton} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.linkButton}
+              activeOpacity={0.7}
+              onPress={() => setModal("account")}
+            >
               <Text style={styles.linkText}>Create Account</Text>
               <View style={styles.linkUnderline} />
             </TouchableOpacity>
 
             <View style={styles.linkDivider} />
 
-            <TouchableOpacity style={styles.linkButton} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.linkButton}
+              activeOpacity={0.7}
+              onPress={() => setModal("event")}
+            >
               <Text style={styles.linkText}>Create Event</Text>
               <View style={styles.linkUnderline} />
             </TouchableOpacity>
@@ -106,6 +173,27 @@ export default function WelcomeScreen() {
           <Text style={styles.footerLink}>Terms & Privacy</Text>
         </Text>
       </KeyboardAvoidingView>
+
+      <FormModal
+        visible={modal === "account"}
+        title="Create Account"
+        subtitle="Sign up to get started"
+        fields={ACCOUNT_FIELDS}
+        submitLabel="SIGN UP"
+        submitting={submitting}
+        onClose={() => setModal(null)}
+        onSubmit={handleCreateAccount}
+      />
+
+      <FormModal
+        visible={modal === "event"}
+        title="Create Event"
+        subtitle="Set up a new event gallery"
+        fields={EVENT_FIELDS}
+        submitLabel="CREATE EVENT"
+        onClose={() => setModal(null)}
+        onSubmit={handleCreateEvent}
+      />
     </View>
   );
 }
