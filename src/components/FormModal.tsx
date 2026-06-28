@@ -48,7 +48,6 @@ export default function FormModal({
 }: FormModalProps) {
   const [values, setValues] = useState<Record<string, string>>({});
 
-  // Clear entered values each time the pop-up is dismissed.
   useEffect(() => {
     if (!visible) setValues({});
   }, [visible]);
