@@ -2,6 +2,7 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from ProjectHelper import Helpers as ph
+from typing import Optional
 
 class SQLbuilder:
     def __init__(self):
@@ -172,10 +173,6 @@ class SQLbuilder:
             return []
 
         try:
-            # Supabase/PostgREST can't do this exact multi-join + OR + COALESCE-order-by
-            # in one fluent call, so we use an RPC call to a Postgres function instead.
-            # See the matching SQL function `get_approved_photos_for_storyboard`
-            # provided below this file to create it once in Supabase's SQL editor.
             result = self.client.rpc(
                 "get_approved_photos_for_storyboard",
                 {"p_event_id": eventID}
@@ -265,9 +262,8 @@ class SQLbuilder:
             print(f"Error getting storyboard: {e}")
             return []
 
-    def insertMusic(self, title: str, fileName: str, filePath: str, artist: str = None, eventType: str = "general",
-                     moodLabel: str = "general", durationSeconds: float = 0, source: str = "local file",
-                     licenseType: str = "project testing", isActive: bool = True):
+    def insertMusic(self, title: str, fileName: str, filePath: str, artist: str = None, eventType: str = "general",moodLabel: str = "general", 
+                    durationSeconds: float = 0, source: str = "local file",licenseType: str = "project testing", isActive: bool = True):
         table = 'music'
 
         values = {
@@ -284,21 +280,8 @@ class SQLbuilder:
         }
         return self.insertToDB(values, table)
 
-    def insertGeneratedVideo(
-        self,
-        eventID: int,
-        fileName: str,
-        filePath: str,
-        musicID: int | None = None,
-        title: str = "Final Event Video",
-        videoType: str = "slideshow",
-        status: str = "completed",
-        durationSeconds: float = 0,
-        width: int = 1280,
-        height: int = 720,
-        fps: int = 30,
-        fileSize: int = 0
-    ):
+    def insertGeneratedVideo(self,eventID: int,fileName: str,filePath: str,musicID: int | None = None,title: str = "Final Event Video",
+        videoType: str = "slideshow",status: str = "completed",durationSeconds: float = 0,width: int = 1280,height: int = 720,fps: int = 30,fileSize: int = 0):
         try:
             values = {
                 "event_id": eventID,
@@ -608,6 +591,111 @@ class SQLbuilder:
         except Exception as e:
             print(f"Error inserting prompt request: {e}")
             return None 
+        
+    def _apply_upload_owner_filter(self,query,userID: Optional[int] = None,guestID: Optional[int] = None):
+
+        if userID is not None and guestID is not None:
+            return query.or_(
+                f"user_id.eq.{userID},guest_id.eq.{guestID}",
+                reference_table="uploads"
+            )
+
+        if userID is not None:
+            return query.eq("uploads.user_id", userID)
+
+        if guestID is not None:
+            return query.eq("uploads.guest_id", guestID)
+
+        return query
+
+    def getAllMedia(self, eventID: int, dataType: str = "both"):
+        dataType = dataType.lower().strip()
+
+        if dataType not in ["both", "videos", "photos"]:
+            raise ValueError("dataType must be 'both', 'videos', or 'photos'.")
+
+        result = {"photos": [], "videos": []}
+
+        if dataType in ["both", "photos"]:
+            photos = (
+                self.client
+                .table("photos")
+                .select("""
+                    photo_id,
+                    event_id,
+                    created_at,
+                    photo_taken,
+                    last_edit,
+                    upload_id,
+                    uploads!inner(
+                        upload_id,
+                        guest_id,
+                        user_id,
+                        original_file_name,
+                        blob_name,
+                        file_path,
+                        media_type,
+                        mime_type,
+                        file_size,
+                        upload_status,
+                        processing_status,
+                        created_at,
+                        guests(guest_id, display_name, email, phone_number),
+                        app_user(user_id, user_name, first_name, last_name, email)
+                    )
+                """)
+                .eq("event_id", eventID)
+                .eq("hide_photo", False)
+                .eq("uploads.media_type", "photo")
+                .order("created_at", desc=True)
+                .execute()
+            )
+            result["photos"] = photos.data
+
+        if dataType in ["both", "videos"]:
+            videos = (
+                self.client
+                .table("videos")
+                .select("""
+                    video_id,
+                    event_id,
+                    title,
+                    status,
+                    duration_seconds,
+                    width,
+                    height,
+                    fps,
+                    thumbnail_path,
+                    created_at,
+                    last_updated,
+                    upload_id,
+                    uploads!inner(
+                        upload_id,
+                        guest_id,
+                        user_id,
+                        original_file_name,
+                        blob_name,
+                        file_path,
+                        media_type,
+                        mime_type,
+                        file_size,
+                        upload_status,
+                        processing_status,
+                        created_at,
+                        guests(guest_id, display_name, email, phone_number),
+                        app_user(user_id, user_name, first_name, last_name, email)
+                    )
+                """)
+                .eq("event_id", eventID)
+                .eq("hide_video", False)
+                .eq("uploads.media_type", "video")
+                .order("created_at", desc=True)
+                .execute()
+            )
+            result["videos"] = videos.data
+
+        return result
+    
 if __name__ == "__main__":
     db = SQLbuilder()
     if db.connect():

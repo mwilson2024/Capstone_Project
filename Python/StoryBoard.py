@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 import DBConn
 import ProjectHelper
-import llavaRanker
 from pathlib import Path
 
 class StoryBoardGen():
@@ -10,7 +9,6 @@ class StoryBoardGen():
         self.db = DBConn.SQLbuilder()
         self.db.connect()
         self.PH = ProjectHelper.Helpers()
-        self.LV = llavaRanker.llavaTool()
 
     def parseTime(self, value):
         if value is None:

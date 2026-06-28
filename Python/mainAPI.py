@@ -16,6 +16,7 @@ import ChatBot
 import logging
 import json
 
+
 logger = logging.getLogger('MainAPI')
 logging.basicConfig(level=logging.INFO)
 
@@ -52,6 +53,9 @@ class QRRequest(BaseModel):
 class Validate(BaseModel):
     token: str
 
+class mediaModel(BaseModel):
+    eventID: int
+    dataType: str
 app = fastapi.FastAPI()
 
 @app.post('/qr/generate')
@@ -201,6 +205,31 @@ async def analyzePrompt(request: PromptRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Prompt analysis failed."
         ) from e
+    
+@app.post('/media/allmedia')
+async def getMedia(req: mediaModel):
+    try:
+        media = db.getAllMedia(eventID=req.eventID,dataType=req.dataType)
+
+        return {
+            "status": "success",
+            "eventID": req.eventID,
+            "dataType": req.dataType,
+            "photos_count": len(media["photos"]),
+            "videos_count": len(media["videos"]),
+            "data": media
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting media: {e}"
+        )
+
+    
     
 if __name__ == "__main__":
     uvicorn.run("mainAPI:app", host="127.0.0.1", port=8000, reload=True)
