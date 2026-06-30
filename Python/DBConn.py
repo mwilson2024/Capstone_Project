@@ -725,9 +725,9 @@ class SQLbuilder:
             query = (
                 self.client
                 .table("app_user")
-                .select('*')
+                .select('user_id', "password_hash")
             )
-
+            
             if email:
                 query = query.eq("email", email)
             elif userName:
@@ -735,14 +735,24 @@ class SQLbuilder:
 
             result = query.execute()
 
-            if result.data:
-                return result.data[0]
-
-            return None
+            return result.data[0] if result.data else None
 
         except Exception as e:
             print(f"Error getting user password: {e}")
             return None
+
+    def getUserInfo(self, userID):
+        if not userID:
+            return None
+
+        query = (self.client
+                 .table('app_user')
+                 .select("user_id, user_name, first_name, last_name, email, phone, role, created, last_updated")
+                 .eq('user_id', userID)
+                 .execute())
+
+        return query.data[0] if query.data else None
+
     
 if __name__ == "__main__":
     db = SQLbuilder()

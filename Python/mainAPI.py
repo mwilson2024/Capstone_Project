@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import asdict
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import AzureClass
 import ChatBot
@@ -28,11 +28,6 @@ blob = AzureClass.blobHandler()
 db = DBConn.SQLbuilder()
 db.connect()
 
-class uploadModel(BaseModel):
-    eventID: int
-    files: List[UploadFile] = File(...)
-    guestID: int
-    userID: int
 
 class PromptRequest(BaseModel):
     eventID: int = Field(..., gt=0)
@@ -41,36 +36,41 @@ class PromptRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=1000)
 
 
-class MakeVideoRequest(BaseModel):
-    eventID: int
-    userID: int
-    feeling: str
+# class MakeVideoRequest(BaseModel):
+#     eventID: int
+#     userID: int
+#     feeling: str
  
     
-class QRRequest(BaseModel):
-    eventID: int
-    expirationDate: str
-    maxUploads: int = 50
-    purpose: str = "guests"
-    is_active: bool = True
+# class QRRequest(BaseModel):
+#     eventID: int
+#     expirationDate: str
+#     maxUploads: int = 50
+#     purpose: str = "guests"
+#     is_active: bool = True
 
-class Validate(BaseModel):
-    token: str
+# class Validate(BaseModel):
+#     token: str
 
-class mediaModel(BaseModel):
-    eventID: int
-    dataType: str
+# class mediaModel(BaseModel):
+#     eventID: int
+#     dataType: str
 app = fastapi.FastAPI()
 
 @app.post('/qr/generate')
-async def createQR(req: QRRequest):
+async def createQR(req: dc.QRRequest):
     qrCode = qrGen.genQR()
     qrCode.generateUrl(req.eventID)
-    qrCode.generateQRcode(req.expirationDate, req.maxUploads, req.purpose, req.is_active)
-    print("done")
+    result = qrCode.generateQRcode(req.expirationDate, req.maxUploads, req.purpose, req.is_active)
+    return {
+            "event_id": req.eventID,
+            "status": "created",
+            "url": 'temp',
+            "result": result
+        }
 
 @app.get('/qr/validate')
-async def validateQR(req: Validate):
+async def validateQR(req: dc.validateToken):
     qrCode = qrGen.genQR()
     valid, reason = qrCode.validateQRcode(req.eventID)
     print(valid, reason)
@@ -85,16 +85,26 @@ async def readUser(userID : str):
     return{'userID': userID}
 
 #API endpoint for the upload function
-@app.post('/upload')
-async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: List[UploadFile] = File(...)):
-    nr = newRunner.newRunner()
+@app.post("/upload")
+async def uploadPhotos(
+    eventID: int = Form(...),
+    userID: Optional[int] = Form(None),
+    guestID: Optional[int] = Form(None),
+    files: List[UploadFile] = File(...)
+):
+    if userID is None and guestID is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either userID or guestID is required."
+        )
+
     photosExt = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic")
     vidExt = (".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".mkv")
 
     saved = []
-            
+
     for file in files:
-        orgName = Path(file.filename).name
+        orgName = Path(file.filename or "unknown_file").name
         suffix = Path(orgName).suffix.lower()
 
         if suffix in photosExt:
@@ -102,17 +112,47 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
         elif suffix in vidExt:
             fType = "video"
         else:
-            saved.append(asdict(dc(orgName, "skipped", None, None, None, None, "Unsupported file type")))
+            saved.append(
+                asdict(
+                    dc.uploadResults(
+                        file_name=orgName,
+                        status="skipped",
+                        reason="Unsupported file type"
+                    )
+                )
+            )
             continue
 
         try:
             res = await blob.fileUpload(file, eventID, fType)
-            saved.append(asdict(dc.uploadResults(res["original_name"],"saved", fType, res["size_bytes"], res["url"], res["blob_name"], 'success', res["content_type"] )))
-            print(f'File: {res["url"]}, Size: {res["size_bytes"]} bytes, Type: {fType}')
 
-   
+            saved.append(
+                asdict(
+                    dc.uploadResults(
+                        file_name=res["original_name"],
+                        status="saved",
+                        file_type=fType,
+                        size_bytes=res["size_bytes"],
+                        url=res["url"],
+                        blob_name=res["blob_name"],
+                        reason="success",
+                        content_type=res["content_type"]
+                    )
+                )
+            )
+
+            print(f'File: {res["url"]} Size: {res["size_bytes"]} bytes, Type: {fType}')
+
         except Exception as e:
-            saved.append(asdict(dc(orgName, "failed", None, None, None, None, str(e))))
+            saved.append(
+                asdict(
+                    dc.uploadResults(
+                        file_name=orgName,
+                        status="failed",
+                        reason=str(e)
+                    )
+                )
+            )
 
     uploadRows = []
 
@@ -120,27 +160,60 @@ async def uploadPhotos(eventID:int = Form(...), userID:int = Form(...), files: L
         if item["status"] != "saved":
             continue
 
-        uploadRows.append({"event_id": eventID,"user_id": userID,"original_file_name": item["file_name"],"blob_name": item["blob_name"],"file_path": item["url"], 
-        "media_type": item["file_type"],"mime_type": item["content_type"],"file_size": item["size_bytes"],"upload_status": "uploaded","processing_status": "not_started"})
+        uploadRows.append(
+            {
+                "event_id": eventID,
+                "user_id": userID,
+                "guest_id": guestID,
+                "original_file_name": item["file_name"],
+                "blob_name": item["blob_name"],
+                "file_path": item["url"],
+                "media_type": item["file_type"],
+                "mime_type": item["content_type"],
+                "file_size": item["size_bytes"],
+                "upload_status": "uploaded",
+                "processing_status": "not_started"
+            }
+        )
+
+    if not uploadRows:
+        return {
+            "event_id": eventID,
+            "user_id": userID,
+            "guest_id": guestID,
+            "uploaded": 0,
+            "db_records_inserted": 0,
+            "photo_records_inserted": 0,
+            "video_records_inserted": 0,
+            "results": saved
+        }
 
     inserted = db.insertUploads(uploadRows)
+
+    if not inserted:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Files uploaded to Azure, but database insert failed."
+        )
+
     mediaInserts = db.insertMediaRecordsFromUploads(inserted)
 
-    #nr.runProcess(eventID, 'photo')
-    #nr.runProcess(eventID, 'video')
-        
+    if not mediaInserts:
+        mediaInserts = {"photos": [], "videos": []}
+
     return {
         "event_id": eventID,
         "user_id": userID,
+        "guest_id": guestID,
         "uploaded": len([item for item in saved if item["status"] == "saved"]),
-        "db_records_inserted": len(inserted) if inserted else 0,
+        "db_records_inserted": len(inserted),
         "photo_records_inserted": len(mediaInserts["photos"]),
         "video_records_inserted": len(mediaInserts["videos"]),
         "results": saved
     }
   
 @app.post("/video/generate")
-async def generateVideo(request: MakeVideoRequest, req: MakeVideoRequest):
+async def generateVideo(req: dc.MakeVideoRequest):
     try:
         ss = SlideShow.SlideShowGenerator()
         sb = StoryBoard.StoryBoardGen()
@@ -174,7 +247,7 @@ async def generateVideo(request: MakeVideoRequest, req: MakeVideoRequest):
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail= "Video Generation Failed") from e
 
 @app.post("/prompt/analyze")
-async def analyzePrompt(request: PromptRequest):
+async def analyzePrompt(request: dc.PromptRequest):
     try:
         bot = ChatBot.chatBotOpenAI()
         result = bot.getResponse(request.prompt)
@@ -211,7 +284,7 @@ async def analyzePrompt(request: PromptRequest):
         ) from e
     
 @app.post('/media/allmedia')
-async def getMedia(req: mediaModel):
+async def getMedia(req: dc.mediaModel):
     try:
         media = db.getAllMedia(eventID=req.eventID,dataType=req.dataType)
 
