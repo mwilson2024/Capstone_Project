@@ -7,7 +7,7 @@ from supabase import Client, create_client
 
 
 class SQLbuilder:
-    def __init__(self):
+    def __init__(self, log):
         load_dotenv()
 
         self.supabase_url = os.getenv("SUPABASE_URL")
@@ -17,7 +17,7 @@ class SQLbuilder:
             raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
 
         self.client: Client = create_client(self.supabase_url, self.service_key)
-    
+        self.log = log
 
     def connect(self):
         try:

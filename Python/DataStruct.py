@@ -111,9 +111,9 @@ class MakeVideoRequest(BaseModel):
  
     
 class QRRequest(BaseModel):
-    eventID: int
-    expirationDate: str
-    maxUploads: int = 50
+    event_id: int
+    expires_at: str
+    max_uploads: int = 50
     purpose: str = "guests"
     is_active: bool = True
 

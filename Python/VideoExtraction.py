@@ -1,21 +1,14 @@
-import logging
 import math
 import os
 from pathlib import Path
 
 import cv2 as cv
-import DBConn
 
-log = logging.getLogger(__name__)
 
 class ExtractVidFrames():
-    def __init__(self, db=None):
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+    def __init__(self, log, db):
+        self.log = log
+        self.db = db
         
     def extractFrames(self, inPath: str, outPath: str, videoID: int, eventID: int, setSeconds: int= 3):
 

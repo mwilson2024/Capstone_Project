@@ -1,19 +1,11 @@
-import logging
-
 import DataStruct as ds
-import DBConn
 from ProjectHelper import Helpers as ph
 
-log = logging.getLogger(__name__)
 
 class Users:
-    def __init__(self, db=None):
-        if db == None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
+    def __init__(self, db, log):
             self.db = db
+            self.log = log
   
     def createUser(self, user: ds.userCreate):
         userData = user.model_dump(exclude={"pwd"})

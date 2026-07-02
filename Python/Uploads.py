@@ -40,10 +40,10 @@ class UploadManager:
         ".webm": "video",
         ".mkv": "video",
     }
-    def __init__(self, db, blob, logger=None):
+    def __init__(self, db, blob, logger):
         self.db = db
         self.blob = blob
-        self.logger = logger
+        self.log = logger
     
     async def validate_file(self, file: UploadFile) -> tuple[str, str]:
       

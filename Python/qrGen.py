@@ -1,27 +1,20 @@
-import logging
+
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
-import DBConn
 import qrcode
 
-log = logging.getLogger(__name__)
 
 class genQR():
-    def __init__(self, db= None, path = "http://localhost:8000"):
+    def __init__(self, db, log, path = "http://localhost:8000"):
         self.baseUrl = path
         self.fullUrl = None
-
+        self.log = log
 
         self.localTesting = Path(r"C:\CSI4999\qrCodes")
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.db = db
 
 
     def genToken(self):
@@ -113,22 +106,3 @@ class genQR():
                 return False, "Upload limit reached"
 
         return True, "QR code is valid"
-
-
-def main():
-    qrCo = genQR("http://localhost:8000")
-
-    qrCo.generateUrl(195)
-    qrPath = qrCo.generateQRcode("10/23/26", 5000)
-
-    print(f"QR code created: {qrPath}")
-    print(f"Upload URL: {qrCo.fullUrl}")
-    print(f"Token: {qrCo.token}")
-
-    valid, message = qrCo.validateQRcode(qrCo.token)
-    print(valid, message)
-
-
-if __name__ == "__main__":
-    main()
-

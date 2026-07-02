@@ -1,15 +1,17 @@
-import os
 import json
+import os
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
+
 class chatBotOpenAI:
-    def __init__(self):
+    def __init__(self, logger):
         load_dotenv()
         apiKey = os.getenv('OPENAI_API_KEY')
         if not apiKey:
             raise ValueError('Missing Open AI Key')
-        
+        self.log = logger
         self.client = OpenAI(api_key= apiKey)
 
     def buildPrompt(self, userPrompt: str) -> str:
@@ -71,8 +73,3 @@ class chatBotOpenAI:
             print(text)
             raise e
         
-
-if __name__ == "__main__":
-    cb = chatBotOpenAI()
-    test = cb.getResponse('i want all the romantic moements tonight')
-    print(json.dumps(test, indent=4))

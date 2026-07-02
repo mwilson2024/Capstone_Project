@@ -1,4 +1,3 @@
-import logging
 from pathlib import Path
 
 import cv2 as cv
@@ -8,10 +7,9 @@ import numpy as np
 from PIL import Image
 from ProjectHelper import Helpers as ph
 
-log = logging.getLogger(__name__)
 
 class ImgQualFilt:
-    def __init__(self, db=None, minWidth=800, minHeight=600, blurThreshold=100., darkThreshold = 45.0, brightThreshold = 215.0, contrastThreshold = 30.0):
+    def __init__(self, db, log, minWidth=800, minHeight=600, blurThreshold=100., darkThreshold = 45.0, brightThreshold = 215.0, contrastThreshold = 30.0):
         self.minWidth = minWidth
         self.minHeight = minHeight
         self.blurThres = blurThreshold
@@ -19,12 +17,8 @@ class ImgQualFilt:
         self.brightThres = brightThreshold
         self.contrastThres = contrastThreshold
         self.db = DBConn.SQLbuilder()
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.db = db
+        self.log = log
 
     
     def buildDict(self, photo_id: int, status: str, reasons: list[str], blurScore: float, brightScore: float, contScore: float, width: float, height: float, 

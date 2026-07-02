@@ -1,19 +1,11 @@
-import logging
-
 import DataStruct as ds
-import DBConn
 from ProjectHelper import Helpers as ph
 
-log = logging.getLogger(__name__)
 
 class Manager:
-    def __init__(self, db=None):
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+    def __init__(self, db, log):
+        self.db = db
+        self.log = log
 
     def createEvent(self, event: ds.eventCreate, location: ds.eventLocation):
         try:

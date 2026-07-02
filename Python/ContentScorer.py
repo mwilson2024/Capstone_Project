@@ -1,21 +1,12 @@
-import logging
-from pathlib import Path
-
-import DBConn
 from ProjectHelper import Helpers as ph
 from ultralytics import YOLO
 
-log = logging.getLogger(__name__)
 
 class ContentScoring:
-    def __init__(self, modelPath ="yolo26n.pt", db=None):
+    def __init__(self, db, log, modelPath ="yolo26n.pt"):
         self.model = YOLO(modelPath)
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.log = log
+        self.db = db
 
     def buildDict(self, photoID: int, perCount: int, maxPerConf: float, objClass: list[str], conf: float, contScore: int, isVideo: bool = False):
         #objects = ",".join(objClass)
@@ -77,12 +68,3 @@ class ContentScoring:
         
         return ph.batchRun(media, self.analyze, self.db.insertContent, dtype)
     
-def main():
-    scorer = ContentScoring()
-    #scorer.batchRun(1)
-    scorer.batchRunVideos(r'C:\CSI4999\Videos\tempFrames\event_1_35iz4tfs_frames', 1)
-   # print(f)
-
-
-if __name__ == "__main__":
-    main()      

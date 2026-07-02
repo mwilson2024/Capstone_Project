@@ -1,12 +1,14 @@
 import os
+from pathlib import Path
+from uuid import uuid4
+
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from dotenv import load_dotenv
-from uuid import uuid4
-from pathlib import Path
 from fastapi import UploadFile
 
+
 class blobHandler:
-    def __init__(self):
+    def __init__(self, log):
         load_dotenv()
 
         self.connectString = os.getenv("AZURE_CONNECTION_STRING")
@@ -17,7 +19,8 @@ class blobHandler:
 
         if not self.container:
             raise ValueError("Missing Container Name")
-        #print(self.container)
+        
+        self.log = log
         
         self.blobClient = BlobServiceClient.from_connection_string(self.connectString)
         self.containerClient = self.blobClient.get_container_client(self.container)
@@ -93,6 +96,3 @@ class blobHandler:
             
             
         return downloaded
-if __name__ == "__main__":
-    u = blobHandler()
-    print(u)

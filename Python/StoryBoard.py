@@ -1,22 +1,14 @@
-import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 
-import DBConn
 import ProjectHelper
 
-log = logging.getLogger(__name__)
 
 class StoryBoardGen():
-    def __init__(self, db=None, eventTimeGap: int = 20):
+    def __init__(self, db, log, eventTimeGap: int = 20):
         self.eventTimeGap = eventTimeGap
         self.PH = ProjectHelper.Helpers()
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.log = log
+        self.db = db
 
     def parseTime(self, value):
         if value is None:
@@ -124,26 +116,26 @@ class StoryBoardGen():
         return output
 
     
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    db = DBConn.SQLbuilder()
-    db.connect()
-    photos = db.getApprovedPhotosForStoryboard(1)
-    generator = StoryBoardGen(1)
+#     db = DBConn.SQLbuilder()
+#     db.connect()
+#     photos = db.getApprovedPhotosForStoryboard(1)
+#     generator = StoryBoardGen(1)
 
-    storyboard = generator.generateSeq(photos)
+#     storyboard = generator.generateSeq(photos)
     
-    db.insertStoryboardItems(1, storyboard)
+#     db.insertStoryboardItems(1, storyboard)
 
-    print("\nGenerated Storyboard:")
-    print("-" * 60)
+#     print("\nGenerated Storyboard:")
+#     print("-" * 60)
 
-    for item in storyboard:
-        print(f"Sequence Order: {item['sequence_order']}")
-        print(f"Photo ID: {item['photo_id']}")
-        print(f"Event ID: {item['event_id']}")
-        print(f"Scene Label: {item['scene_label']}")
-        print(f"Confidence: {item['confidence']}")
-        print(f"Reason: {item['reason']}")
-        print(f"File Path: {item['file_path']}")
-        print("-" * 60)
+#     for item in storyboard:
+#         print(f"Sequence Order: {item['sequence_order']}")
+#         print(f"Photo ID: {item['photo_id']}")
+#         print(f"Event ID: {item['event_id']}")
+#         print(f"Scene Label: {item['scene_label']}")
+#         print(f"Confidence: {item['confidence']}")
+#         print(f"Reason: {item['reason']}")
+#         print(f"File Path: {item['file_path']}")
+#         print("-" * 60)

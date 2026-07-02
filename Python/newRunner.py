@@ -1,5 +1,4 @@
 import logging
-import os
 import tempfile
 from pathlib import Path
 
@@ -12,21 +11,17 @@ from ProjectHelper import Helpers as ph
 
 import VideoExtraction
 
-log = logging.getLogger(__name__)
 
 class newRunner:
-    def __init__(self, db=None):
-        self.cs = ContentScorer.ContentScoring()
-        self.ir = ImageRanker.blipRanker()
-        self.pf = PreFilter.ImgQualFilt()
-        self.ve = VideoExtraction.ExtractVidFrames()
-        self.blob = AzureClass.blobHandler()
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+    def __init__(self, db = None, log = None, blob = None):
+        self.log = log or logging.getLogger(__name__)
+        self.blob = blob or AzureClass.blobHandler(self.log)
+        self.db = db or DBConn.SQLbuilder(self.log)
+        
+        self.cs = ContentScorer.ContentScoring(db= self.db, log=self.log)
+        self.ir = ImageRanker.blipRanker(db= self.db, log=self.log)
+        self.pf = PreFilter.ImgQualFilt(db= self.db, log= self.log)
+        self.ve = VideoExtraction.ExtractVidFrames(db= self.db, log= self.log)
 
     def runProcess(self, eventID: int, dt: str = 'photo'):
         dType = dt2 = 'photo_id'
@@ -61,11 +56,3 @@ class newRunner:
             
         return {f"Pre Filter: {prefilt}\n Results: {pfr}\nImage Ranker: {imgRank}\nResults: {irr}\nContent Score: {contScore}\nResults: {csr}"}
 
-def main():
-    test = newRunner()
-    res = test.runProcess(4, 'video')
-    #res = test.runVideos(4)
-    print(res)
-
-if __name__ == "__main__":
-    main()

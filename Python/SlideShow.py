@@ -1,29 +1,25 @@
-import logging
 import tempfile
 from pathlib import Path
 
-import AzureClass
+#import AzureClass
 import cv2 as cv
 import DBConn
 import numpy as np
 import StoryBoard
 from moviepy import AudioFileClip, VideoFileClip
 
-log = logging.getLogger(__name__)
 
 class SlideShowGenerator:
-    def __init__(self, db=None, outputDir: str = r'C:\CSI4999\Videos\Output', width: int = 1280, height: int = 720, fps: int = 30, secPerPhoto: int = 3):
+    def __init__(self, db, log, azure , outputDir: str = r'C:\CSI4999\Videos\Output', width: int = 1280, height: int = 720, fps: int = 30, secPerPhoto: int = 3):
         self.outputDir = Path(outputDir)
         self.outputDir.mkdir(parents=True, exist_ok=True)
         self.width = width
         self.height = height
         self.fps = fps
         self.secPerPhoto = secPerPhoto
-        if db is None:
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.db = db
+        self.log = log
+        self.azure = azure
 
     def resizePadding(self, img: str):
         h,w = img.shape[:2]
@@ -90,14 +86,14 @@ class SlideShowGenerator:
             print("storyboard is empty")
             return None
         
-        azure = AzureClass.blobHandler()
+        #azure = AzureClass.blobHandler()
     
         fourcc = cv.VideoWriter_fourcc(*"mp4v")
         
         
         with tempfile.TemporaryDirectory() as tempDir:
             outPutPath = Path(tempDir) / outputname
-            media = azure.downloadToTemp(storyboard, tempDir, dType)
+            media = self.azure.downloadToTemp(storyboard, tempDir, dType)
             writer = cv.VideoWriter(str(outPutPath), fourcc, self.fps, (self.width, self.height))
             usedCount = 0
 

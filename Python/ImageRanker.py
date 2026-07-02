@@ -1,29 +1,21 @@
-import logging
 import os
 import re
 
-import DBConn
 import torch
-from PIL import Image
 from ProjectHelper import Helpers as ph
 from transformers import BlipForConditionalGeneration, BlipProcessor, pipeline
 
-log = logging.getLogger(__name__)
 
 class blipRanker():
-    def __init__(self, db = None):
+    def __init__(self, db, log):
         self.device = self.selectDevice()
         self.hf_token = os.getenv("HF_TOKEN")
         self.blipProc = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base",token=self.hf_token)
         self.blipModel = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
         self.blipModel.to(self.device)
         self.clipClassify = pipeline(task="zero-shot-image-classification",model="openai/clip-vit-base-patch32", token=self.hf_token)
-        if db is None:
-            log.warning("EventsClass.Manager created its own DB connection — db was not injected")
-            self.db = DBConn.SQLbuilder()
-            self.db.connect()
-        else:
-            self.db = db
+        self.log = log
+        self.db = db
 
     def buildDict(self, photo_id: int, caption: str, moodLabel: str, moodConfScore: float, allMood: list[str], 
                   allMoodScore: list[float], kwScore: int, kw: list[str] | str, nudityCheck: bool = False):
@@ -299,10 +291,3 @@ class blipRanker():
             raise ValueError(err)
         
         return ph.batchRun(media, self.analyze, self.db.insertImageRanking, dtype)
-
-def main():
-    test = blipRanker()
-    test.batchRun(1)
-
-if __name__ == "__main__":
-    main()
