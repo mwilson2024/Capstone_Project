@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useMemo, useState } from "react";
 import {
   Alert,
@@ -12,8 +14,17 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { setToken } from "@/lib/api";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
+
+const VERSION = "1.0.0";
+
+const LINKS: Record<string, string> = {
+  privacy_policy: "https://github.com/GageMG/Capstone_Project#readme",
+  help: "https://github.com/GageMG/Capstone_Project#readme",
+  feedback: "https://github.com/GageMG/Capstone_Project/issues",
+};
 
 // ─── Types
 type SettingToggleItem = {
@@ -364,7 +375,7 @@ const SECTIONS: SettingSection[] = [
         label: "App Version",
         icon: "information-circle-outline",
         iconColor: "#5A6A85",
-        value: "1.0.0",
+        value: VERSION,
       },
     ],
   },
@@ -413,10 +424,21 @@ export default function SettingsScreen() {
   };
 
   const handleAction = (id: string) => {
-    if (id === "logout") {
+    if (LINKS[id]) {
+      WebBrowser.openBrowserAsync(LINKS[id]);
+    } else if (id === "version") {
+      Alert.alert("App Version", `Version ${VERSION}`);
+    } else if (id === "logout") {
       Alert.alert("Log Out", "Are you sure you want to log out?", [
         { text: "Cancel", style: "cancel" },
-        { text: "Log Out", style: "destructive", onPress: () => {} },
+        {
+          text: "Log Out",
+          style: "destructive",
+          onPress: () => {
+            setToken("");
+            router.replace("/");
+          },
+        },
       ]);
     } else if (id === "delete") {
       Alert.alert(

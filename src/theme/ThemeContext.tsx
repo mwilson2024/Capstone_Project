@@ -11,7 +11,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [themeName, setThemeName] = useState<ThemeName>("dark");
+  const [themeName, setThemeName] = useState<ThemeName>("light");
 
   const value = useMemo<ThemeContextValue>(
     () => ({

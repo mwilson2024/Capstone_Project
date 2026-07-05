@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Alert,
@@ -40,7 +41,8 @@ const parseDate = (s: string) => {
   if (!m) return null;
   const [mo, d, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const date = new Date(y, mo - 1, d);
-  return date.getMonth() === mo - 1 && date.getDate() === d ? date.toISOString() : null;
+  if (date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 };
 
 export default function WelcomeScreen() {
@@ -50,6 +52,7 @@ export default function WelcomeScreen() {
   const [password, setPassword] = useState("");
   const [modal, setModal] = useState<null | "account" | "event">(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   const handleLogin = async () => {
     const login = username.trim();
@@ -58,15 +61,18 @@ export default function WelcomeScreen() {
       return;
     }
 
+    setLoggingIn(true);
     try {
       const { access_token } = await apiFetch("/users/login", {
         ...(login.includes("@") ? { email: login } : { user_name: login }),
         pwd: password,
       });
       setToken(access_token);
-      Alert.alert("Logged In", "You are now signed in.");
+      router.replace("/gallery");
     } catch (error: any) {
       Alert.alert("Login Failed", error.message ?? "Please try again.");
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -134,7 +140,6 @@ export default function WelcomeScreen() {
       {/* Background geometric shapes */}
       <View style={styles.bgCircleLarge} />
       <View style={styles.bgCircleSmall} />
-      <View style={styles.bgAccentLine} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -184,12 +189,15 @@ export default function WelcomeScreen() {
 
           {/* Login Button */}
           <TouchableOpacity
-            style={styles.loginButton}
+            style={[styles.loginButton, loggingIn && { opacity: 0.65 }]}
             onPress={handleLogin}
             activeOpacity={0.85}
+            disabled={loggingIn}
           >
-            <Text style={styles.loginButtonText}>LOG IN</Text>
-            <Text style={styles.loginArrow}>→</Text>
+            <Text style={styles.loginButtonText}>
+              {loggingIn ? "LOGGING IN…" : "LOG IN"}
+            </Text>
+            {!loggingIn && <Text style={styles.loginArrow}>→</Text>}
           </TouchableOpacity>
 
           {/* Bottom Links Row */}
@@ -276,16 +284,6 @@ const makeStyles = (c: ThemeColors) =>
       bottom: 80,
       left: -80,
       opacity: 0.25,
-    },
-    bgAccentLine: {
-      position: "absolute",
-      width: 2,
-      height: 260,
-      backgroundColor: c.accentStrong,
-      top: 120,
-      left: 28,
-      opacity: 0.3,
-      borderRadius: 2,
     },
 
     inner: {

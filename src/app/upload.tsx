@@ -48,8 +48,8 @@ export default function UploadScreen() {
   };
 
   const validateUpload = () => {
-    if (!QR_TOKEN || QR_TOKEN === "QR_TOKEN_HERE" || !EVENT_ID) {
-      Alert.alert("Security Error", "Missing valid QR event token or event ID.");
+    if (!QR_TOKEN || QR_TOKEN === "QR_TOKEN_HERE" || !EVENT_ID || !GUEST_ID) {
+      Alert.alert("Security Error", "Missing valid QR event token, event ID, or guest ID.");
       return false;
     }
 
@@ -288,7 +288,7 @@ export default function UploadScreen() {
             ]}
             onPress={handleUpload}
             activeOpacity={0.85}
-            disabled={uploading}
+            disabled={uploading || !securityConfirmed}
           >
             {uploading ? (
               <>

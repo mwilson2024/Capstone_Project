@@ -340,20 +340,22 @@ export default function GalleryScreen() {
   const [selectedGallery, setSelectedGallery] = useState<Gallery | null>(null);
 
   useEffect(() => {
-    const fetchGalleries = async () => {
+    const controller = new AbortController();
+
+    (async () => {
       try {
-        const response = await fetch(`${API_URL}/events`);
+        const response = await fetch(`${API_URL}/events`, { signal: controller.signal });
         if (!response.ok) throw new Error("Failed to fetch galleries");
-        const data = await response.json();
-        setGalleries(data);
+        setGalleries(await response.json());
+        setLoading(false);
       } catch (err: any) {
+        if (err.name === "AbortError") return;
         setError(err.message);
-      } finally {
         setLoading(false);
       }
-    };
+    })();
 
-    fetchGalleries();
+    return () => controller.abort();
   }, []);
 
   return (

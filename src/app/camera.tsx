@@ -306,17 +306,19 @@ export default function CameraScreen() {
     if (!previewPhoto) return;
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === "granted") {
-        await MediaLibrary.saveToLibraryAsync(previewPhoto.uri);
-        Alert.alert("Saved!", "Photo saved to your camera roll.");
-      } else {
+      if (status !== "granted") {
         Alert.alert("Permission needed", "Allow media library access to save photos.");
+        return;
       }
-      setCapturedPhotos((prev) => [previewPhoto, ...prev]);
-    } catch (e) {
+      await MediaLibrary.saveToLibraryAsync(previewPhoto.uri);
+      setCapturedPhotos((prev) =>
+        prev.some((p) => p.id === previewPhoto.id) ? prev : [previewPhoto, ...prev]
+      );
+      setPreviewPhoto(null);
+      Alert.alert("Saved!", "Photo saved to your camera roll.");
+    } catch {
       Alert.alert("Error", "Could not save photo.");
     }
-    setPreviewPhoto(null);
   };
 
   const handleDiscard = () => {
