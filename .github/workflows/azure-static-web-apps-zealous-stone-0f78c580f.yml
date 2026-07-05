@@ -30,6 +30,8 @@ jobs:
 
       - name: Build Expo web
         run: npx expo export --platform web
+        env:
+          EXPO_PUBLIC_API_URL: https://csi4999-api-h4exhuc3b3btafg3.eastus-01.azurewebsites.net
 
       - name: Build And Deploy
         id: builddeploy
