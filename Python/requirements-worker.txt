@@ -1,0 +1,31 @@
+# Web API
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+pydantic
+
+# Auth / security
+PyJWT
+pwdlib[argon2]
+
+# Cloud / database
+azure-storage-queue
+supabase
+
+# Images / computer vision
+Pillow
+ImageHash
+opencv-python
+numpy
+ultralytics
+
+# AI / ML
+torch
+transformers
+accelerate
+sentencepiece
+timm
+
+# Video
+moviepy
