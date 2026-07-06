@@ -1,11 +1,13 @@
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
-from azure.storage.queue import QueueClient
+
 from azure.storage.blob import BlobServiceClient, ContentSettings
+from azure.storage.queue import QueueClient
 from dotenv import load_dotenv
 from fastapi import UploadFile
-import json
+
 
 class blobHandler:
     def __init__(self, log):
@@ -20,7 +22,8 @@ class blobHandler:
         if not self.container:
             raise ValueError("Missing Container Name")
         
-        self.queue = QueueClient.from_connection_string(conn_str=os.getenv("AZURE_STORAGE_CONNECTION_STRING"), queue_name=os.getenv("AZURE_QUEUE_NAME"))
+        #self.queue = QueueClient.from_connection_string(conn_str=os.getenv("AZURE_STORAGE_CONNECTION_STRING"), queue_name=os.getenv("AZURE_QUEUE_NAME"))
+        self.queue = 'placeholder'
         
         self.log = log
 
