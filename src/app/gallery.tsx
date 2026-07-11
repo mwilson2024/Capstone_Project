@@ -33,7 +33,7 @@ type Gallery = {
   photos: Photo[];
 };
 
-// Photo Lightbox (media surface — always dark)
+// Photo Lightbox
 function Lightbox({
   photos,
   startIndex,

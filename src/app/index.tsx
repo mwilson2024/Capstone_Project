@@ -1,3 +1,7 @@
+import FormModal, { FormField } from "@/components/FormModal";
+import { apiFetch, hasToken, setToken } from "@/lib/api";
+import { ThemeColors } from "@/theme/colors";
+import { useTheme } from "@/theme/ThemeContext";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -11,10 +15,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import FormModal, { FormField } from "@/components/FormModal";
-import { apiFetch, hasToken, setToken } from "@/lib/api";
-import { ThemeColors } from "@/theme/colors";
-import { useTheme } from "@/theme/ThemeContext";
 
 const ACCOUNT_FIELDS: FormField[] = [
   { key: "user_name", label: "Username", placeholder: "Choose a username", autoCapitalize: "none" },

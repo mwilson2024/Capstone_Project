@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,10 +12,11 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { API_URL } from "@/lib/api";
+import { API_URL, apiFetch, hasToken } from "@/lib/api";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
 
@@ -24,10 +25,10 @@ const THUMB = (SCREEN_WIDTH - 56) / 3;
 
 const MAX_PHOTOS = 20;
 const QR_TOKEN = "QR_TOKEN_HERE";
-const EVENT_ID = 0;
 const GUEST_ID = 0;
 
 type PickedPhoto = { id: string; uri: string };
+type EventOption = { event_id: number; name: string };
 
 export default function UploadScreen() {
   const { colors: c } = useTheme();
@@ -36,6 +37,15 @@ export default function UploadScreen() {
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
   const [securityConfirmed, setSecurityConfirmed] = useState(false);
+  const [eventId, setEventId] = useState("");
+  const [events, setEvents] = useState<EventOption[]>([]);
+
+  useEffect(() => {
+    if (!hasToken()) return;
+    apiFetch("/events/mine")
+      .then((res) => setEvents(Array.isArray(res) ? res : res.events ?? []))
+      .catch(() => {});
+  }, []);
 
   const isValidImage = (uri: string) => {
     const lower = uri.toLowerCase();
@@ -48,8 +58,14 @@ export default function UploadScreen() {
   };
 
   const validateUpload = () => {
-    if (!QR_TOKEN || QR_TOKEN === "QR_TOKEN_HERE" || !EVENT_ID || !GUEST_ID) {
-      Alert.alert("Security Error", "Missing valid QR event token, event ID, or guest ID.");
+    const id = Number(eventId);
+    if (!Number.isInteger(id) || id <= 0) {
+      Alert.alert("No Event Selected", "Choose which event these photos belong to.");
+      return false;
+    }
+
+    if (!QR_TOKEN || QR_TOKEN === "QR_TOKEN_HERE" || !GUEST_ID) {
+      Alert.alert("Security Error", "Missing valid QR event token or guest ID.");
       return false;
     }
 
@@ -127,7 +143,7 @@ export default function UploadScreen() {
     try {
       const formData = new FormData();
 
-      formData.append("eventID", String(EVENT_ID));
+      formData.append("eventID", String(Number(eventId)));
       formData.append("qrToken", QR_TOKEN);
       formData.append("guestID", String(GUEST_ID));
 
@@ -188,6 +204,40 @@ export default function UploadScreen() {
           ? `${photos.length} photo${photos.length !== 1 ? "s" : ""} selected`
           : "No photos selected"}
       </Text>
+
+      <View style={s.eventBox}>
+        <Text style={s.eventLabel}>UPLOAD TO EVENT</Text>
+        {events.length > 0 ? (
+          <View style={s.chipRow}>
+            {events.map((ev) => (
+              <TouchableOpacity
+                key={ev.event_id}
+                style={[s.chip, Number(eventId) === ev.event_id && s.chipSelected]}
+                onPress={() => setEventId(String(ev.event_id))}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    s.chipText,
+                    Number(eventId) === ev.event_id && s.chipTextSelected,
+                  ]}
+                >
+                  {ev.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <TextInput
+            style={s.eventInput}
+            placeholder="Event ID"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            value={eventId}
+            onChangeText={setEventId}
+          />
+        )}
+      </View>
 
       <View style={s.securityBox}>
         <Ionicons name="shield-checkmark-outline" size={20} color={c.successText} />
@@ -352,6 +402,53 @@ const makeStyles = (c: ThemeColors) =>
       color: c.textFaint,
       paddingHorizontal: 24,
       marginBottom: 12,
+    },
+
+    eventBox: {
+      marginHorizontal: 20,
+      marginBottom: 12,
+    },
+    eventLabel: {
+      fontSize: 10,
+      fontWeight: "700",
+      color: c.accent,
+      letterSpacing: 2.5,
+      marginBottom: 8,
+    },
+    chipRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    chip: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 20,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    chipSelected: {
+      backgroundColor: c.accentStrong,
+      borderColor: c.accentStrong,
+    },
+    chipText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: c.textPrimary,
+    },
+    chipTextSelected: {
+      color: "#fff",
+    },
+    eventInput: {
+      height: 46,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      backgroundColor: c.surface,
+      paddingHorizontal: 14,
+      fontSize: 15,
+      color: c.textPrimary,
     },
 
     securityBox: {

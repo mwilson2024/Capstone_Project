@@ -8,14 +8,18 @@ export const setToken = (t: string) => {
 
 export const hasToken = () => token.length > 0;
 
-export async function apiFetch<T = any>(path: string, body?: unknown): Promise<T> {
+export async function apiFetch<T = any>(
+  path: string,
+  body?: unknown,
+  method: string = body === undefined ? "GET" : "POST"
+): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (hasToken()) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, {
-    method: "POST",
+    method,
     headers,
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (!res.ok) {
