@@ -1,7 +1,10 @@
+import os
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 import tempfile
 from pathlib import Path
+from azure.core.exceptions import ResourceNotFoundError
 from shared.ProjectHelper import Helpers as ph
 from shared.AzureClass import blobHandler
 from worker.ContentScorer import ContentScoring
@@ -12,11 +15,37 @@ from worker.SlideShow import SlideShowGenerator
 from api.StoryBoard import StoryBoardGen
 from worker.VideoExtraction import ExtractVidFrames
 
-logging.basicConfig(level=logging.INFO)
+LOG_DIR = os.environ.get("LOG_DIR", "logs")
+LOG_FILE = os.environ.get("LOG_FILE", "worker.log")
+QUEUE_VISIBILITY_TIMEOUT = max(int(os.environ.get("QUEUE_VISIBILITY_TIMEOUT", "3600")), 1)
+QUEUE_MAX_ATTEMPTS = max(int(os.environ.get("QUEUE_MAX_ATTEMPTS", "3")), 1)
+
+def setup_logger(name: str = "workerLog") -> logging.Logger:
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    app_logger = logging.getLogger(name)
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
+
+    if app_logger.handlers:
+        return app_logger
+
+    log_format = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    file_handler = RotatingFileHandler(os.path.join(LOG_DIR, LOG_FILE),maxBytes=10_000_000,backupCount=5,)
+    file_handler.setFormatter(log_format)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_format)
+
+    app_logger.addHandler(file_handler)
+    app_logger.addHandler(console_handler)
+    return app_logger
+
 
 class newRunner:
     def __init__(self, db = None, log = None, blob = None):
-        self.log = log or logging.getLogger("Worker")
+        self.log = log or setup_logger()
         self.blob = blob or blobHandler(self.log)
         self.db = db or SQLbuilder(self.log)
        
@@ -27,6 +56,23 @@ class newRunner:
         self.ss = SlideShowGenerator(db=self.db, log= self.log, azure= self.blob)
         self.sb = StoryBoardGen(db=self.db, log=self.log)
 
+    def deleteQueueMessage(self, msg) -> bool:
+        try:
+            self.blob.queue.delete_message(msg)
+            return True
+        except ResourceNotFoundError as error:
+            if getattr(error, "error_code", None) == "MessageNotFound" or "MessageNotFound" in str(error):
+                self.log.warning(
+                    "Queue message %s was already deleted or its receipt expired; treating delete as complete.",
+                    getattr(msg, "id", None),
+                )
+                return False
+            self.log.exception("Azure could not find the queue message during deletion")
+            return False
+        except Exception:
+            self.log.exception("Could not delete queue message")
+            return False
+
 
     def manageQueue(self):
         def updateCall(jobID, update:str, err: str | None = None, prompt: int | None = None):
@@ -35,10 +81,10 @@ class newRunner:
         self.log.info("Queue worker started.") 
 
         while True:
-            msg = self.blob.queue.receive_message(visibility_timeout=300)
+            msg = self.blob.queue.receive_message(visibility_timeout=QUEUE_VISIBILITY_TIMEOUT)
             
             if msg is None:
-                time.sleep(5)
+                time.sleep(10)
                 continue
 
             jobID = None
@@ -90,13 +136,20 @@ class newRunner:
                         raise ValueError
                     
                     updateCall(jobID, 'processing')
-
+                    storyboard = self.db.getStoryboardByID(storyBoardID)
+                    if not storyboard:
+                        raise ValueError(f"Storyboard {storyBoardID} was not found")
+                    if str(storyboard.get("event_id")) != str(eventID):
+                        raise ValueError(
+                            f"Storyboard {storyBoardID} does not belong to event {eventID}"
+                        )
                     sb = self.db.getStoryboardItems(storyBoardID)
 
                     if not sb:
                         raise ValueError(f"No approved storyboard photos found for event {eventID}")
-                    
-                    videoPath = self.ss.generateVideo(sb, eventID)    
+                    music = self.db.getMusicByID(storyboard.get("music_id"))
+                    package = {"storyboard": storyboard, "items": sb, "music": music}
+                    videoPath = self.ss.generateVideo(package , eventID)    
 
                     self.log.info(f"Video created successfully: {videoPath}")
 
@@ -105,7 +158,7 @@ class newRunner:
                 else:
                     raise ValueError(f"Unknown job_type: {jobType}")
 
-                self.blob.queue.delete_message(msg)
+                self.deleteQueueMessage(msg)
 
             except Exception as e:
                 self.log.exception(f"Queue job failed: {e}")
@@ -113,8 +166,11 @@ class newRunner:
                 if jobID:
                     updateCall(jobID, 'failed', str(e))
 
-                self.blob.queue.delete_message(msg)
-
+                attempts = int(getattr(msg, "dequeue_count", 1) or 1)
+                if attempts >= QUEUE_MAX_ATTEMPTS:
+                    self.log.error("Deleting queue message after %s failed attempts", attempts)
+                    self.deleteQueueMessage(msg)
+                                            
     def runProcess(self, eventID: int, dt: str = 'photos', uploadIDs: list[int] | None = None):
         print(f'Starting Event {eventID}, for {dt}')
         dt = dt.lower().strip()
@@ -193,12 +249,12 @@ class newRunner:
 
     def batchStatus(self, tblName, idColName, rowID, Status):
         self.db.batchStatusUodate(tblName=tblName, idColName=idColName, rowIDs=rowID, status= Status)
-    
-    
+
         
 # if __name__ == "__main__":
-#     test = newRunner()
-#     res = test.runProcess(1, 'videos')
+#       test = newRunner()
+#       res = test.runProcess(1, 'videos')
 if __name__ == "__main__":
     runner = newRunner()
+
     runner.manageQueue()

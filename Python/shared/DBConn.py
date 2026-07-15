@@ -179,29 +179,89 @@ class SQLbuilder:
         ]
         return self.insertToDB(values, table, dtype)
 
-    def insertImageRanking(self, dataDict: list[dict], dtype: str ='photo_id'):
-        if dataDict is None:
+    def insertImageRanking(self,dataDict: list[dict] | dict, dtype: str = "photo_id"):
+        if not dataDict:
             self.log.info("Missing image ranking data")
             return None
 
-        table ='photo_ranking'
+        if dtype not in {"photo_id", "frame_id"}:
+            self.log.error(f"Invalid image ranking dtype: {dtype}")
+            return None
 
-        if dtype == 'frame_id':
-            table = 'video_ranking'
+        table = "photo_ranking"
 
-        values = [{
-            "caption": item.get("caption", ""),
-            "mood_label": item.get("mood_label", ""),
-            "mood_conf_score": item.get("mood_conf_score", 0),
-            "all_mood_labels": item.get("all_mood_labels", ""),
-            "keyword_score": item.get("keyword_score", 0),
-            "keywords": item.get("keywords", ""),
-            "nudity_check": item.get("nudity_check", 0),
-            "all_mood_scores": item.get("all_mood_scores", ""),
-            dtype: item.get(dtype)
-        } for item in dataDict]
+        if dtype == "frame_id":
+            table = "video_ranking"
 
-        return self.insertToDB(values, table, dtype)
+        if isinstance(dataDict, dict):
+            dataDict = [dataDict]
+
+        if not isinstance(dataDict, list):
+            self.log.error("Image ranking data must be a dict or list of dicts")
+            return None
+
+        invalidItems = [index
+            for index, item in enumerate(dataDict)
+            if not isinstance(item, dict)
+        ]
+
+        if invalidItems:
+            self.log.error(f"Invalid image ranking results at indexes: {invalidItems}")
+            return None
+
+        values = [
+            {
+                dtype: item.get(dtype),
+                "caption": item.get("caption",""),
+                "mood_label": item.get("mood_label","unknown"),
+                "mood_conf_score": item.get("mood_conf_score",0.0),
+                "all_mood_labels": item.get("all_mood_labels",""),
+                "keyword_score": item.get("keyword_score",0 ),
+                "keywords": item.get("keywords",""),
+                "nudity_check": item.get("nudity_check",False),
+                "all_mood_scores": item.get("all_mood_scores",""),
+                "event_type": item.get("event_type","unknown"),
+                "event_type_conf_score": item.get("event_type_conf_score",0.0),
+                "event_detail_label": item.get("event_detail_label","unknown"),
+                "event_detail_conf_score": item.get("event_detail_conf_score",0.0),
+                "event_detail_scores": item.get("event_detail_scores",""),
+                "romantic": item.get("romantic",0),
+                "professional": item.get("professional",0),
+                "friends": item.get("friends",0),
+                "family": item.get("family",0),
+                "ceremony": item.get("ceremony",0),
+                "reception": item.get("reception",0),
+                "dancing": item.get("dancing",0),
+                "food_decor": item.get("food_decor",0),
+                "venue_detail": item.get("venue_detail",0),
+                "happy": item.get("happy",0),
+                "sentimental": item.get("sentimental",0),
+                "energetic": item.get("energetic",0),
+                "calm": item.get("calm",0),
+                "dramatic": item.get("dramatic",0),
+                "nostalgic": item.get("nostalgic",0),
+                "funny": item.get("funny",0),
+                "general": item.get("general",0),
+                "quality_reject": item.get("quality_reject",0),
+                "nudity": item.get("nudity",0),
+                "matched_keywords": item.get("matched_keywords",""
+                )
+            }
+            for item in dataDict
+            if item.get(dtype) is not None
+        ]
+
+        if not values:
+            self.log.info(
+                f"No valid image ranking rows contained {dtype}"
+            )
+            return None
+
+        return self.insertToDB(
+            values=values,
+            table=table,
+            kwMatch=dtype
+        )
 
     def selectAll(self, table: str):
         try:
@@ -211,22 +271,22 @@ class SQLbuilder:
             self.log.info(f"Error selecting all from {table}: {e}")
             return None
 
-    def getApprovedPhotosForStoryboard(self, eventID: int):
-        if eventID is None:
-            self.log.info("Missing eventID")
-            return []
+    # def getApprovedPhotosForStoryboard(self, eventID: int):
+    #     if eventID is None:
+    #         self.log.info("Missing eventID")
+    #         return []
 
-        try:
-            result = self.client.rpc(
-                "get_approved_photos_for_storyboard",
-                {"p_event_id": eventID}
-            ).execute()
+    #     try:
+    #         result = self.client.rpc(
+    #             "get_approved_photos_for_storyboard",
+    #             {"p_event_id": eventID}
+    #         ).execute()
 
-            return result.data or []
+    #         return result.data or []
 
-        except Exception as e:
-            self.log.info(f"Error getting approved photos for storyboard: {e}")
-            return []
+    #     except Exception as e:
+    #         self.log.info(f"Error getting approved photos for storyboard: {e}")
+    #         return []
         
     def createStoryboard(self,eventID: int,requestID: int | None = None,status: str = "created"):
         if eventID is None:
@@ -338,27 +398,27 @@ class SQLbuilder:
             self.log.info(f"Error upserting storyboard items: {e}")
             return []
 
-    def createStoryboardWithItems(self,eventID: int,storyboard_items: list[dict],requestID: int | None = None):
-        storyboard = self.createStoryboard(eventID=eventID,requestID=requestID,status="created")
+    # def createStoryboardWithItems(self,eventID: int,storyboard_items: list[dict],requestID: int | None = None):
+    #     storyboard = self.createStoryboard(eventID=eventID,requestID=requestID,status="created")
 
-        if not storyboard:
-            return None
+    #     if not storyboard:
+    #         return None
 
-        storyboardID = storyboard["storyboard_id"]
+    #     storyboardID = storyboard["storyboard_id"]
 
-        inserted_items = self.insertStoryboardItems(storyboardID=storyboardID,storyboard_items=storyboard_items)
+    #     inserted_items = self.insertStoryboardItems(storyboardID=storyboardID,storyboard_items=storyboard_items)
 
-        if not inserted_items:
-            self.updateStoryboardStatus(storyboardID, "failed")
-            return None
+    #     if not inserted_items:
+    #         self.updateStoryboardStatus(storyboardID, "failed")
+    #         return None
 
-        self.updateStoryboardStatus(storyboardID, "completed")
+    #     self.updateStoryboardStatus(storyboardID, "completed")
         
 
-        return {
-            "storyboard": storyboard,
-            "items": inserted_items
-        }
+    #     return {
+    #         "storyboard": storyboard,
+    #         "items": inserted_items
+    #     }
     
     #def getStoryboardByEvent(self, eventID: int):
     #     if eventID is None:
@@ -595,9 +655,7 @@ class SQLbuilder:
         table = "photos" if mediaType == "photos" else "videos"
         id_field = "photo_id" if mediaType == "photos" else "video_id"
 
-        uploads_select = (
-            "uploads!photos_upload_id_fkey" if mediaType == "photos" else "uploads"
-        )
+        uploads_select = ("uploads!photos_upload_id_fkey" if mediaType == "photos" else "uploads")
 
         try:
             query = (
@@ -1407,11 +1465,486 @@ class SQLbuilder:
             self.log.exception(f"Error updating job_queue status: {e}")
             return None
     
-# if __name__ == "__main__":
-#     db = SQLbuilder()
-#     if db.connect():
-#         self.log.info("Connected to Supabase.")
+    def getMyEvents(self, userID: int):
+        if userID is None or userID <= 0:
+            self.log.error("A valid userID is required to load events")
+            return None
 
-#     rows = db.selectAll('app_user')
-#     for row in rows or []:
-#         self.log.info(row)
+        try:
+            result = (
+                self.client
+                .table("event")
+                .select(
+                    """
+                    event_id,
+                    user_id,
+                    name,
+                    type,
+                    event_date,
+                    location_id,
+                    status,
+                    uploads_enabled,
+                    upload_limit,
+                    created_at,
+                    last_updated
+                    """
+                )
+                .eq("user_id", userID)
+                .order("event_date", desc=False)
+                .execute()
+            )
+
+            return result.data or []
+
+        except Exception as e:
+            self.log.exception(f"Error getting events for user_id={userID}: {e}")
+            return None
+        
+    def getEventTypeFromMedia(self, mediaID: int, dtype: str = "photo_id") -> str:
+
+        if mediaID is None:
+            self.log.error("getEventIDFromMedia: mediaID is required")
+            return None
+
+        if dtype not in {"photo_id", "frame_id"}:
+            self.log.error("getEventIDFromMedia: invalid dtype=%s", dtype)
+            return None
+
+        try:
+            if dtype == "photo_id":
+                result = (
+                    self.client
+                    .table("photos")
+                    .select("event_id")
+                    .eq("photo_id", mediaID)
+                    .limit(1)
+                    .execute()
+                )
+
+                rows = result.data or []
+
+                if not rows:
+                    self.log.warning(f"No photo found for photo_id={mediaID}")
+                    return None
+
+                eventID = rows[0].get("event_id")
+
+                if eventID is None:
+                    self.log.warning(f"Photo photo_id={mediaID} has no event_id")
+                    return None
+
+            else:
+                frameResult = (
+                    self.client
+                        .table("video_frames")
+                        .select("video_id")
+                        .eq("frame_id", mediaID)
+                        .limit(1)
+                        .execute()
+                )
+
+                frameRows = frameResult.data or []
+
+                if not frameRows:
+                    self.log.warning(f"No video frame found for frame_id={mediaID}")
+                    return None
+
+                videoID = frameRows[0].get("video_id")
+
+                if videoID is None:
+                    self.log.warning(f"Video frame frame_id={mediaID} has no video_id")
+                    return None
+
+                videoResult = (
+                    self.client
+                        .table("videos")
+                        .select("event_id")
+                        .eq("video_id", videoID)
+                        .limit(1)
+                        .execute()
+                )
+
+                videoRows = videoResult.data or []
+
+                if not videoRows:
+                    self.log.warning(f"No video found for video_id={videoID} from frame_id={mediaID}")
+                    return None
+
+                eventID = videoRows[0].get("event_id")
+
+                if eventID is None:
+                    self.log.warning(f"Video video_id={videoID} has no event_id")
+                    return None
+
+            eventID = int(eventID)
+
+            # Now fetch the full row from the "event" table
+            eventResult = (
+                self.client
+                    .table("event")
+                    .select("type")
+                    .eq("event_id", eventID)
+                    .limit(1)
+                    .execute()
+            )
+
+            eventRows = eventResult.data or []
+
+            if not eventRows:
+                self.log.warning(f"No event found for event_id={eventID}")
+                return None
+
+            return eventRows[0]
+
+        except Exception:
+            self.log.exception(f"Failed to get event_id for dtype={dtype} media_id={mediaID}")
+            return None
+
+    def getPromptRequestByID(self, promptID: int):
+        if promptID is None:
+            self.log.error("Missing promptID")
+            return None
+
+        try:
+            result = (self.client.table("prompt_requests")
+                      .select("*")
+                      .eq("prompt_request_id", promptID)
+                      .limit(1)
+                      .execute())
+            return result.data[0] if result.data else None
+        except Exception as e:
+            self.log.error(f"Error getting prompt request prompt_id={promptID}: {e}")
+            return None
+
+    def getEventByID(self, eventID: int):
+        if eventID is None:
+            self.log.error("Missing eventID")
+            return None
+
+        try:
+            result = (self.client.table("event")
+                      .select("event_id,user_id,name,type,event_date,location_id,status,created_at,last_updated,uploads_enabled,upload_limit")
+                      .eq("event_id", eventID)
+                      .limit(1)
+                      .execute())
+            return result.data[0] if result.data else None
+        except Exception as e:
+            self.log.error(f"Error getting event event_id={eventID}: {e}")
+            return None
+
+    def getActiveMusic(self):
+        try:
+            result = (self.client.table("music")
+                      .select("music_id,title,artist,event_type,mood_label,file_name,file_path,duration_seconds,source,license_type,is_active")
+                      .eq("is_active", True)
+                      .order("title", desc=False)
+                      .execute())
+            return result.data or []
+        except Exception as e:
+            self.log.error(f"Error getting active music: {e}")
+            return []
+
+    def getApprovedPhotosForStoryboard(self, eventID: int):
+        if eventID is None:
+            self.log.error("Missing eventID")
+            return []
+
+        try:
+            photoResult = (self.client.table("photos")
+                           .select("photo_id,event_id,upload_id,photo_taken,created_at")
+                           .eq("event_id", eventID)
+                           .eq("hide_photo", False)
+                           .execute())
+            photos = photoResult.data or []
+
+            if not photos:
+                return []
+
+            photoIDs = [row["photo_id"] for row in photos]
+            uploadIDs = list({row["upload_id"] for row in photos if row.get("upload_id") is not None})
+
+            filterResult = (self.client.table("photo_filter")
+                            .select("photo_id,status,reason,blur_score,bright_score,contrast_score,gps,image_hash,photo_original_date,camera_model,user_approved")
+                            .in_("photo_id", photoIDs)
+                            .execute())
+            approvedFilters = {row["photo_id"]: row for row in filterResult.data or [] if row.get("status") == "approved" or row.get("user_approved") is True}
+
+            if not approvedFilters:
+                return []
+
+            approvedIDs = list(approvedFilters.keys())
+            contentResult = (self.client.table("photo_content")
+                             .select("photo_id,person_count,max_person_conf,obj_class,content_score")
+                             .in_("photo_id", approvedIDs)
+                             .execute())
+            rankingResult = (self.client.table("photo_ranking")
+                             .select("photo_id,caption,mood_label,mood_conf_score,all_mood_labels,keyword_score,keywords," \
+                             "nudity_check,all_mood_scores,event_type,event_type_conf_score,event_detail_label,event_detail_conf_score," \
+                             "event_detail_scores,romantic,professional,friends,family,ceremony,reception,dancing,food_decor,venue_detail,happy," \
+                             "sentimental,energetic,calm,dramatic,nostalgic,funny,general,quality_reject,nudity,matched_keywords")
+                             .in_("photo_id", approvedIDs)
+                             .execute())
+            uploadResult = (self.client.table("uploads")
+                            .select("upload_id,file_path,created_at")
+                            .in_("upload_id", uploadIDs)
+                            .execute())if uploadIDs else None
+
+            contentByID = {row["photo_id"]: row for row in contentResult.data or []}
+            rankingByID = {row["photo_id"]: row for row in rankingResult.data or []}
+            uploadByID = {row["upload_id"]: row for row in uploadResult.data or []} if uploadResult else {}
+            approvedPhotos = []
+
+            for photo in photos:
+                photoID = photo["photo_id"]
+                if photoID not in approvedFilters:
+                    continue
+
+                upload = uploadByID.get(photo.get("upload_id"), {})
+                row = dict(photo)
+                row.update(approvedFilters.get(photoID, {}))
+                row.update(contentByID.get(photoID, {}))
+                row.update(rankingByID.get(photoID, {}))
+                row["file_path"] = upload.get("file_path")
+                row["upload_created_at"] = upload.get("created_at")
+                approvedPhotos.append(row)
+
+            approvedPhotos.sort(key=lambda row: row.get("photo_original_date") or row.get("photo_taken") or row.get("created_at") or "")
+            return approvedPhotos
+        except Exception as e:
+            self.log.error(f"Error getting approved photos for storyboard event_id={eventID}: {e}")
+            return []
+
+    def getVideoFramesForStoryboard(self, eventID: int):
+        if eventID is None:
+            self.log.error("Missing eventID")
+            return []
+
+        try:
+            frameResult = (self.client.table("video_frames")
+                           .select("frame_id,video_id,event_id,frame_num,time_stamp,created_at,status")
+                           .eq("event_id", eventID)
+                           .execute())
+            frames = frameResult.data or []
+
+            if not frames:
+                return []
+
+            frameIDs = [row["frame_id"] for row in frames]
+            videoIDs = list({row["video_id"] for row in frames if row.get("video_id") is not None})
+            if not videoIDs:
+                return []
+
+            videoResult = (self.client.table("videos")
+                           .select("video_id,event_id,status,duration_seconds,video_original_date,created_at,upload_id,hide_video")
+                           .in_("video_id", videoIDs)
+                           .execute())
+            videos = [
+                row for row in videoResult.data or []
+                if row.get("event_id") == eventID
+                and row.get("hide_video") is not True
+                and row.get("status") not in {"failed", "rejected"}
+            ]
+
+            if not videos:
+                return []
+
+            visibleVideoIDs = {row["video_id"] for row in videos}
+            uploadIDs = list({row["upload_id"] for row in videos if row.get("upload_id") is not None})
+            contentResult = (self.client.table("video_content")
+                             .select("frame_id,person_count,max_person_conf,obj_class,content_score")
+                             .in_("frame_id", frameIDs)
+                             .execute())
+            rankingResult = (self.client.table("video_ranking")
+                             .select("frame_id,caption,mood_label,mood_conf_score,all_mood_labels,keyword_score,keywords,nudity_check," \
+                             "all_mood_scores,event_type,event_type_conf_score,event_detail_label,event_detail_conf_score,event_detail_scores,romantic,professional," \
+                             "friends,family,ceremony,reception,dancing,food_decor,venue_detail,happy,sentimental,energetic,calm,dramatic,nostalgic,funny,general," \
+                             "quality_reject,nudity,matched_keywords")
+                             .in_("frame_id", frameIDs).
+                             execute())
+            uploadResult = (self.client.table("uploads")
+                            .select("upload_id,file_path,created_at")
+                            .in_("upload_id", uploadIDs)
+                            .execute()) if uploadIDs else None
+
+            videoByID = {row["video_id"]: row for row in videos}
+            contentByID = {row["frame_id"]: row for row in contentResult.data or []}
+            rankingByID = {row["frame_id"]: row for row in rankingResult.data or []}
+            uploadByID = {row["upload_id"]: row for row in uploadResult.data or []} if uploadResult else {}
+            frameRows = []
+
+            for frame in frames:
+                videoID = frame.get("video_id")
+                if videoID not in visibleVideoIDs:
+                    continue
+
+                video = videoByID.get(videoID, {})
+                upload = uploadByID.get(video.get("upload_id"), {})
+                row = dict(frame)
+                row.update(contentByID.get(frame["frame_id"], {}))
+                row.update(rankingByID.get(frame["frame_id"], {}))
+                row["duration_seconds"] = video.get("duration_seconds")
+                row["video_original_date"] = video.get("video_original_date")
+                row["video_created_at"] = video.get("created_at")
+                row["upload_created_at"] = upload.get("created_at")
+                row["file_path"] = upload.get("file_path")
+                frameRows.append(row)
+
+            return frameRows
+        except Exception:
+            self.log.exception(f"Error getting video frames for storyboard event_id={eventID}")
+            return []
+
+    def createStoryboardWithItems(self, eventID: int, requestID: int, musicID: int | None, storyboardData: dict, storyboard_items: list[dict]):
+        if eventID is None or requestID is None:
+            self.log.error("Missing eventID or requestID")
+            return None
+
+        if not storyboard_items:
+            self.log.error(f"No storyboard items provided for prompt_id={requestID}")
+            return None
+
+        sequenceOrders = set()
+        for item in storyboard_items:
+            sourceType = item.get("source_type")
+            sequenceOrder = item.get("sequence_order")
+            if sourceType not in {"photo", "video"}:
+                self.log.error(f"Invalid storyboard source_type={sourceType!r}")
+                return None
+            if not isinstance(sequenceOrder, int) or sequenceOrder <= 0 or sequenceOrder in sequenceOrders:
+                self.log.error(f"Invalid or duplicate storyboard sequence_order={sequenceOrder!r}")
+                return None
+            if sourceType == "photo" and item.get("photo_id") is None:
+                self.log.error("Photo storyboard item is missing photo_id")
+                return None
+            if sourceType == "video" and (item.get("video_id") is None or item.get("frame_id") is None):
+                self.log.error("Video storyboard item is missing video_id or frame_id")
+                return None
+            sequenceOrders.add(sequenceOrder)
+
+        storyboardID = None
+        previousItems = []
+        previousStatus = None
+        itemsReplaced = False
+
+        def restorePreviousStoryboard():
+            if storyboardID is None or not itemsReplaced:
+                return
+            try:
+                self.client.table("storyboard_items").delete().eq("storyboard_id", storyboardID).execute()
+                if previousItems:
+                    self.client.table("storyboard_items").insert(previousItems).execute()
+                self.client.table("storyboards").update(
+                    {"status": previousStatus or "failed"}
+                ).eq("storyboard_id", storyboardID).execute()
+            except Exception:
+                self.log.exception(f"Failed to restore storyboard_id={storyboardID} after replacement error")
+
+        try:
+            previousStoryboardResult = (self.client.table("storyboards")
+                                        .select("storyboard_id,status")
+                                        .eq("request_id", requestID)
+                                        .limit(1)
+                                        .execute())
+            previousStoryboard = previousStoryboardResult.data[0] if previousStoryboardResult.data else None
+            if previousStoryboard:
+                previousStatus = previousStoryboard.get("status")
+                previousItemResult = (self.client.table("storyboard_items")
+                                      .select("*")
+                                      .eq("storyboard_id", previousStoryboard["storyboard_id"])
+                                      .execute())
+                previousItems = [
+                    {
+                        key: value for key, value in row.items()
+                        if key not in {"storyboard_item_id", "created_at"}
+                    }
+                    for row in previousItemResult.data or []
+                ]
+
+            storyboardValues = {"event_id": eventID, "request_id": requestID, "music_id": musicID, "status": "processing", "video_type": storyboardData.get("video_type", "highlight"), "content_type": storyboardData.get("content_type", "Both"), "theme": storyboardData.get("theme", "general"), "mood": storyboardData.get("mood", "general"), "timing_preference": storyboardData.get("timing_preference", "unknown"), "target_duration_seconds": storyboardData.get("target_duration_seconds", 0), "estimated_duration_seconds": storyboardData.get("estimated_duration_seconds", 0), "window_start": storyboardData.get("window_start"), "event_date": storyboardData.get("event_date")}
+            storyboardResult = (self.client.table("storyboards")
+                                .upsert(storyboardValues, on_conflict="request_id")
+                                .select("*")
+                                .execute())
+
+            if not storyboardResult.data:
+                self.log.error(f"Storyboard was not created for prompt_id={requestID}")
+                return None
+
+            storyboard = storyboardResult.data[0]
+            storyboardID = storyboard["storyboard_id"]
+            self.client.table("storyboard_items").delete().eq("storyboard_id", storyboardID).execute()
+            itemsReplaced = True
+
+            itemValues = []
+            for item in storyboard_items:
+                itemValues.append({"storyboard_id": storyboardID, "source_type": item.get("source_type", "photo"), "photo_id": item.get("photo_id"), "video_id": item.get("video_id"), "frame_id": item.get("frame_id"), "sequence_order": item.get("sequence_order"), "sequence_group": item.get("sequence_group", 1), "scene_label": item.get("scene_label", "General Event Moment"), "confidence": item.get("confidence", 0), "reason": item.get("reason"), "file_path": item.get("file_path"), "occurred_at": item.get("occurred_at"), "time_delta_seconds": item.get("time_delta_seconds", 0), "days_from_event": item.get("days_from_event", 0), "clip_start_seconds": item.get("clip_start_seconds"), "clip_end_seconds": item.get("clip_end_seconds"), "duration_seconds": item.get("duration_seconds", 0), "selection_score": item.get("selection_score", 0), "score_breakdown": item.get("score_breakdown", {})})
+
+            itemResult = self.client.table("storyboard_items").insert(itemValues).select("*").execute()
+            insertedItems = itemResult.data or []
+
+            if len(insertedItems) != len(itemValues):
+                restorePreviousStoryboard()
+                self.log.error(f"Storyboard item insert count mismatch storyboard_id={storyboardID} expected={len(itemValues)} inserted={len(insertedItems)}")
+                return None
+
+            completedResult = self.client.table("storyboards").update({"status": "completed"}).eq("storyboard_id", storyboardID).select("*").execute()
+            completedStoryboard = completedResult.data[0] if completedResult.data else storyboard
+            self.log.info(f"Created storyboard_id={storyboardID} prompt_id={requestID} items={len(insertedItems)}")
+            return {"storyboard": completedStoryboard, "items": insertedItems}
+        except Exception as e:
+            if itemsReplaced:
+                restorePreviousStoryboard()
+            elif storyboardID is not None:
+                try:
+                    self.client.table("storyboards").update({"status": "failed"}).eq("storyboard_id", storyboardID).execute()
+                except Exception:
+                    self.log.exception(f"Failed to mark storyboard_id={storyboardID} as failed")
+            self.log.error(f"Error creating storyboard with items prompt_id={requestID}: {e}")
+            return None
+
+    def getStoryboardByID(self, storyboardID: int):
+        if storyboardID is None:
+            self.log.error("Missing storyboardID")
+            return None
+
+        try:
+            result = (
+                self.client.table("storyboards")
+                .select("*")
+                .eq("storyboard_id", storyboardID)
+                .limit(1)
+                .execute()
+            )
+
+            return result.data[0] if result.data else None
+
+        except Exception as e:
+            self.log.exception(
+                f"Error fetching storyboard_id={storyboardID}: {e}"
+            )
+            return None
+
+    def getMusicByID(self, musicID: int):
+        if musicID is None:
+            return None
+
+        try:
+            result = (
+                self.client.table("music")
+                .select(
+                    "music_id,title,artist,event_type,mood_label,"
+                    "file_name,file_path,duration_seconds,source,"
+                    "license_type,is_active"
+                )
+                .eq("music_id", musicID)
+                .limit(1)
+                .execute()
+            )
+
+            return result.data[0] if result.data else None
+
+        except Exception as e:
+            self.log.exception(
+                f"Error fetching music_id={musicID}: {e}"
+            )
+            return None  

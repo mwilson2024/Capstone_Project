@@ -518,10 +518,7 @@ def getEvent(eventID: int, current_user_id: int = Depends(getCurrentUserID)):
     result = ev.getEventByID(eventID)
 
     if not result:
-        raise HTTPException(
-            status_code=404,
-            detail="Event not found."
-        )
+        raise HTTPException(status_code=404,detail="Event not found.")
 
     return {
         "message": "Event loaded successfully.",
@@ -540,6 +537,29 @@ def modifyEvent(eventID: int, event: dc.eventModify, current_user_id: int = Depe
     return {
         "message": "Event modified successfully.",
         "event": result
+    }
+
+@app.get("/events/user/mine")
+def getMyEvents(current_user_id: int = Depends(getCurrentUserID)):
+    events = db.getMyEvents(current_user_id)
+
+    if events is None:
+        logger.error(
+            f"Could not load events for user_id={current_user_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Events could not be loaded."
+        )
+
+    logger.info(
+        f"Loaded {len(events)} event(s) for user_id={current_user_id}"
+    )
+
+    return {
+        "message": "Events loaded successfully.",
+        "count": len(events),
+        "events": events
     }
 
 @app.patch("/locations/{locationID}")

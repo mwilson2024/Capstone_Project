@@ -1,45 +1,23 @@
 import os
 import re
-
+import json
+from shared import DataStruct as ds
 import torch
 from shared.ProjectHelper import Helpers as ph
 from transformers import BlipForConditionalGeneration, BlipProcessor, pipeline
-
+from PIL import Image
 
 class blipRanker():
     def __init__(self, db, log):
         self.device = self.selectDevice()
         self.hf_token = os.getenv("HF_TOKEN")
         self.blipProc = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base",token=self.hf_token)
-        self.blipModel = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+        self.blipModel = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base", token=self.hf_token)
         self.blipModel.to(self.device)
         self.clipClassify = pipeline(task="zero-shot-image-classification",model="openai/clip-vit-base-patch32", token=self.hf_token)
         self.log = log
         self.db = db
-
-    def buildDict(self, photo_id: int, caption: str, moodLabel: str, moodConfScore: float, allMood: list[str], 
-                  allMoodScore: list[float], kwScore: int, kw: list[str] | str, nudityCheck: bool = False):
-       
-        allMoodStr = ",".join(allMood)
-
-        allMoodScoreStr = ",".join(str(score) for score in allMoodScore)
-
-        if isinstance(kw, list):
-            kwStr = ",".join(kw)
-        else:
-            kwStr = kw
-
-        return {
-            "photo_id": photo_id,
-            "caption": caption,
-            "mood_label": moodLabel,
-            "mood_conf_score": moodConfScore,
-            "all_mood_labels": allMoodStr,
-            "keyword_score": kwScore,
-            "keywords": kwStr,
-            "nudity_check": nudityCheck,
-            "all_mood_scores": allMoodScoreStr
-        }
+        self.eventType = None
 
     def selectDevice(self):
         if torch.cuda.is_available():
@@ -50,22 +28,82 @@ class blipRanker():
             device = torch.device("cpu")
         print(f'Using device {device}')
         return device
+    
+    def classifySafety(self, img) -> dict:
+        labels = [
+            # Wedding / event scene types
+            "a formal ceremony photo",
+            "a reception party photo",
+            "a cocktail hour photo",
+            "a professional portrait photo",
+            "a couple portrait photo",
+            "a family portrait photo",
+            "a wedding party group photo",
+            "a first dance photo",
+            "a speech or toast photo",
+            "a cake cutting photo",
+            "a photo of food or decorations",
+            "a venue or room detail photo",
+            "a dance floor photo",
+            "a guest candid photo",
 
-    def scorePhotos(self, caption: str, kw: dict):
-        caption.lower()
-        score = 0
-        matched = []
-        
-        for word, points in kw.items():
-            if word in caption:
-                score += points
-                matched.append(word)
-        
-        score = min(score, 100)
+            # Emotional / mood labels
+            "a romantic emotional photo",
+            "a joyful celebration photo",
+            "a funny candid photo",
+            "a sentimental emotional photo",
+            "a calm intimate photo",
+            "an energetic party photo",
 
-        print(f"keyword_score: {score}, matched_keyword: {matched}")
+            # Original reject labels
+            "a blurry low quality photo",
+            "a random irrelevant photo",
+            "nudity"
+        ]
 
-        return {"score": score, "keyword": matched}
+        results = self.clipClassify(
+            img,
+            candidate_labels=labels
+        )
+
+        if not results:
+            return {
+                "label": "unknown",
+                "score": 0.0,
+                "all_labels": [],
+                "all_scores": [],
+                "results": []
+            }
+
+        bestResult = results[0]
+
+        return {
+            "label": bestResult.get(
+                "label",
+                "unknown"
+            ),
+            "score": float(
+                bestResult.get("score", 0.0)
+            ),
+            "all_labels": [
+                result.get("label", "unknown")
+                for result in results
+            ],
+            "all_scores": [
+                float(result.get("score", 0.0))
+                for result in results
+            ],
+            "results": results
+        }
+
+    def loadImage(self, photo):
+        if isinstance(photo, Image.Image):
+            return photo.convert('RGB')
+        if isinstance(photo, (str, os.PathLike)):
+            with Image.open(photo) as ph:
+                return ph.convert('RGB')
+            
+        raise TypeError('Photo must be a pil image or a path')
     
     def captionImg(self, img: str):
         input = self.blipProc(img, return_tensors="pt").to(self.device)
@@ -78,216 +116,517 @@ class blipRanker():
 
         return capt
     
-    def classifyMood(self, img: str):
-        labels =  labels = [
-        # Wedding / event scene types
-        "a formal ceremony photo",
-        "a reception party photo",
-        "a cocktail hour photo",
-        "a professional portrait photo",
-        "a couple portrait photo",
-        "a family portrait photo",
-        "a wedding party group photo",
-        "a first dance photo",
-        "a speech or toast photo",
-        "a cake cutting photo",
-        "a photo of food or decorations",
-        "a venue or room detail photo",
-        "a dance floor photo",
-        "a guest candid photo",
+    def classifyEventDetails(self,img) -> dict:
+        eventType = self.eventType.lower().strip()
 
-        # Emotional / mood labels
-        "a romantic emotional photo",
-        "a joyful celebration photo",
-        "a funny candid photo",
-        "a sentimental emotional photo",
-        "a calm intimate photo",
-        "an energetic party photo",
+        profile = ds.EVENT_PROFILES.get(eventType,ds.EVENT_PROFILES["unknown"])
 
-        # Bad / reject labels
-        "a blurry low quality photo",
-        "a random irrelevant photo",
-        "nudity"
-    ]
-        
-        res = self.clipClassify(img, candidate_labels = labels)
-        best = res[0]
-        print(best)
-        return best 
-    
-    def romanticScorePhotos(self, caption: str):
-        if not caption:
+        candidateLabels = (profile.get_detail_candidate_labels())
+
+        labelMap = profile.get_detail_label_map()
+
+        if not candidateLabels:
             return {
-                "score": 0,
-                "matched_keywords": []
+                "event_detail_label": "unknown",
+                "event_detail_conf_score": 0.0,
+                "event_detail_scores": {}
             }
 
-        caption = caption.lower()
+        results = self.clipClassify(img,candidate_labels=candidateLabels)
 
-        keywords = {
-            # Strong romantic moments
-            "kiss": 30,
-            "kissing": 30,
-            "first kiss": 35,
-            "holding hands": 30,
-            "hand in hand": 30,
-            "first dance": 35,
-            "slow dancing": 30,
-            "dancing together": 30,
-            "embracing": 25,
-            "hugging": 20,
-            "hug": 15,
-            "forehead kiss": 35,
-            "looking at each other": 25,
-            "smiling at each other": 25,
+        if not results:
+            return {
+                "event_detail_label": "unknown",
+                "event_detail_conf_score": 0.0,
+                "event_detail_scores": {}
+            }
 
-            # Couple-related
-            "bride": 15,
-            "groom": 15,
-            "couple": 25,
-            "newlyweds": 30,
-            "husband and wife": 30,
-            "wedding couple": 30,
-            "bride and groom": 35,
-            "partner": 10,
-            "spouse": 10,
+        categoryScores = {}
 
-            # Wedding scene moments
-            "wedding": 10,
-            "ceremony": 15,
-            "altar": 15,
-            "vows": 25,
-            "exchanging vows": 30,
-            "rings": 20,
-            "wedding rings": 25,
-            "walking down the aisle": 25,
-            "aisle": 15,
-            "reception": 10,
-            "cake cutting": 15,
-            "cutting cake": 15,
-            "bouquet": 10,
-            "veil": 10,
+        for result in results:
+            label = result.get("label", "")
+            score = float(result.get("score", 0))
+            category = labelMap.get(label, "unknown")
 
-            # Emotional / romantic mood
-            "romantic": 30,
-            "intimate": 25,
-            "emotional": 20,
-            "sweet": 15,
-            "tender": 20,
-            "loving": 25,
-            "joyful": 15,
-            "happy couple": 25,
-            "special moment": 20,
-            "celebrating love": 25,
+            currentScore = categoryScores.get(
+                category,
+                0.0
+            )
 
-            # Visual style that often fits slideshow romance
-            "portrait": 10,
-            "close up": 10,
-            "close-up": 10,
-            "sunset": 15,
-            "golden hour": 20,
-            "flowers": 10,
-            "candles": 10,
-            "decorations": 5
-        }
+            if score > currentScore:
+                categoryScores[category] = score
 
-        negative_keywords = {
-            "food": -10,
-            "table": -5,
-            "plates": -10,
-            "random": -25,
-            "blurry": -30,
-            "low quality": -40,
-            "dark": -15,
-            "nudity": -100,
-            "nude": -100,
-            "bathroom": -40,
-            "parking lot": -20
-        }
-
-        score = 0
-        matched = []
-
-        # Add romantic/wedding points
-        for phrase, points in keywords.items():
-            if re.search(rf"\b{re.escape(phrase)}\b", caption):
-                score += points
-                matched.append(phrase)
-
-        # Subtract bad/random-photo points
-        for phrase, points in negative_keywords.items():
-            if re.search(rf"\b{re.escape(phrase)}\b", caption):
-                score += points
-                matched.append(phrase)
-
-        score = max(0, min(score, 100))
-
-        print(f"keyword_score: {score}, matched_keywords: {matched}")
-
-        return {"score": score,"keywords": matched}
-
-    
-    def analyze(self, photoID:str, photo:str):
-        #photos = self.db.getPhotos(eventID)
-
-        if photo is None:
-            return "No photos found"
-        
-        skippable = ["nudity", "a low quality random photo"]
-        
-        img = photo
-        
-        caption = self.captionImg(img)
-        if caption is None:
-            caption = "None"
-        mood = self.classifyMood(img)
-
-        moodLabel = mood.get("label", "unknown")
-        moodConfScore = float(mood.get("score", 0)) 
-
-        allMood = mood.get("all_mood_labels", [moodLabel])
-        allMoodScore = mood.get("all_mood_scores", [moodConfScore])
-
-        keywordScore = 0
-        keywords = []
-        nudityCheck = 0
-
-        if moodLabel in skippable:
-            keywordScore = 0
-
-            if moodLabel == "nudity":
-                nudityCheck = True
-
-                print(f"Scoring skipped: {moodLabel}")
-        else:
-            scoreResult  = self.romanticScorePhotos(caption)
-
-            if isinstance(scoreResult, (int, float)):
-                keywordScore = float(scoreResult)
-                keywords = []
-
-
-            elif isinstance(scoreResult, dict):
-                keywordScore = float(scoreResult.get("score", 0))
-                keywords = scoreResult.get("keywords", [])
-    
-        dataDict = self.buildDict(
-            photo_id=photoID,
-            caption=caption,
-            moodLabel=moodLabel,
-            moodConfScore=moodConfScore,
-            allMood=allMood,
-            allMoodScore=allMoodScore,
-            kwScore=keywordScore,
-            kw=keywords,
-            nudityCheck=nudityCheck
+        bestResult = results[0]
+        bestLabel = bestResult.get("label", "")
+        bestCategory = labelMap.get(
+            bestLabel,
+            "unknown"
         )
 
-        return dataDict
+        return {
+            "event_detail_label": bestCategory,
+            "event_detail_conf_score": float(
+                bestResult.get("score", 0)
+            ),
+            "event_detail_scores": {
+                category: round(score * 100)
+                for category, score
+                in categoryScores.items()
+            }
+        }
     
-    def batchRunIR(self, media: list[dict], dtype: str = 'photo_id'):
-        if media is None:
-            err = "No files found"
-            raise ValueError(err)
+    def scoreEventDetailKeywords(self,caption: str) -> dict:
+        profile = ds.EVENT_PROFILES.get(self.eventType,ds.EVENT_PROFILES["unknown"])
+
+        caption = caption.lower()
+        scores = {}
+
+        for category, keywordMap in profile.detail_keywords.items():
+            score = 0
+
+            for phrase, points in keywordMap.items():
+                if re.search(rf"\b{re.escape(phrase.lower())}\b", caption):
+                    score += points
+
+            scores[category] = min(score, 100)
+
+        return scores
+    
+    def classifyMood(self, img) -> dict:
+        eventType = self.eventType.lower().strip()
+
+        profile = ds.EVENT_PROFILES.get(eventType,ds.EVENT_PROFILES["unknown"])
+
+        detailLabelMap = profile.get_detail_label_map()
+        moodLabelMap = profile.get_mood_label_map()
+
+        labelMap = {
+            **detailLabelMap,
+            **moodLabelMap,
+        }
+
+        candidateLabels = list(dict.fromkeys(labelMap))
+
+        if not candidateLabels:
+            return {
+                "label": "unknown",
+                "score": 0.0,
+                "all_mood_labels": [],
+                "all_mood_scores": [],
+                "category": "general",
+                "category_scores": {},
+                "event_detail_label": "unknown",
+                "event_detail_conf_score": 0.0,
+                "event_detail_scores": {},
+            }
+
+        results = self.clipClassify(img,candidate_labels=candidateLabels)
+
+        if not results:
+            return {
+                "label": "unknown",
+                "score": 0.0,
+                "all_mood_labels": [],
+                "all_mood_scores": [],
+                "category": "general",
+                "category_scores": {},
+                "event_detail_label": "unknown",
+                "event_detail_conf_score": 0.0,
+                "event_detail_scores": {},
+            }
+
+        bestResult = results[0]
+        bestLabel = bestResult.get("label", "unknown")
+        bestScore = float(bestResult.get("score", 0))
+
+        categoryScores = {}
+
+        for result in results:
+            label = result.get("label", "unknown")
+            score = float(result.get("score", 0))
+            category = labelMap.get(label, "general")
+
+            categoryScores[category] = max(categoryScores.get(category, 0.0),score,)
+
+        bestCategory = labelMap.get(bestLabel, "general")
+
+        detailResults = [
+            result for result in results
+            if result.get("label") in detailLabelMap
+        ]
+        bestDetail = detailResults[0] if detailResults else None
+
+        return {
+            "label": bestLabel,
+            "score": bestScore,
+            "all_mood_labels": [
+                result.get("label", "unknown")
+                for result in results
+            ],
+            "all_mood_scores": [
+                float(result.get("score", 0))
+                for result in results
+            ],
+            "category": bestCategory,
+            "category_scores": categoryScores,
+            "event_detail_label": (
+                detailLabelMap.get(bestDetail.get("label"), "unknown")
+                if bestDetail else "unknown"
+            ),
+            "event_detail_conf_score": (
+                float(bestDetail.get("score", 0))
+                if bestDetail else 0.0
+            ),
+            "event_detail_scores": {
+                category: round(score * 100)
+                for category, score in categoryScores.items()
+                if category in profile.detail_labels
+            },
+        }
+
+    def scorePhotoCategories(self,caption: str) -> dict:
+        if not caption:
+            caption = ""
+
+        eventType = self.eventType.lower().strip()
+
+        profile = ds.EVENT_PROFILES.get(eventType,ds.EVENT_PROFILES["unknown"])
+
+        text = caption.lower()
+
+        qualityKeywords = {
+            "blurry": 50,
+            "blurred": 50,
+            "out of focus": 60,
+            "low quality": 70,
+            "too dark": 50,
+            "underexposed": 50,
+            "overexposed": 50,
+            "grainy": 40,
+            "bad lighting": 45,
+            "poor lighting": 45,
+            "random": 50,
+            "irrelevant": 60
+        }
+
+        nudityKeywords = {
+            "nudity": 100,
+            "nude": 100,
+            "naked": 100,
+            "explicit": 100
+        }
+
+        categories = {
+            **profile.mood_keywords,
+            "quality_reject": qualityKeywords,
+            "nudity": nudityKeywords
+        }
+
+        scores = {}
+        matched = {}
+
+        for category, words in categories.items():
+            score = 0
+            matched[category] = []
+
+            for phrase, points in words.items():
+                if re.search(
+                    rf"\b{re.escape(phrase.lower())}\b",
+                    text
+                ):
+                    score += points
+                    matched[category].append(phrase)
+
+            scores[category] = min(score, 100)
+
+        return {
+            "scores": scores,
+            "matched_keywords": matched
+        }
+
+    def scorePhotoCategories(self,caption: str) -> dict:
+        if not caption:
+            caption = ""
+
+        eventType = self.eventType.lower().strip()
+
+        profile = ds.EVENT_PROFILES.get(
+            eventType,
+            ds.EVENT_PROFILES["unknown"]
+        )
+
+        text = caption.lower()
+
+        qualityKeywords = {
+            "blurry": 50,
+            "blurred": 50,
+            "out of focus": 60,
+            "low quality": 70,
+            "too dark": 50,
+            "underexposed": 50,
+            "overexposed": 50,
+            "grainy": 40,
+            "bad lighting": 45,
+            "poor lighting": 45,
+            "random": 50,
+            "irrelevant": 60
+        }
+
+        nudityKeywords = {
+            "nudity": 100,
+            "nude": 100,
+            "naked": 100,
+            "explicit": 100
+        }
+
+        categories = {
+            **profile.mood_keywords,
+            "quality_reject": qualityKeywords,
+            "nudity": nudityKeywords
+        }
+
+        scores = {}
+        matched = {}
+
+        for category, words in categories.items():
+            score = 0
+            matched[category] = []
+
+            for phrase, points in words.items():
+                if re.search(
+                    rf"\b{re.escape(phrase.lower())}\b",
+                    text
+                ):
+                    score += points
+                    matched[category].append(phrase)
+
+            scores[category] = min(score, 100)
+
+        return {
+            "scores": scores,
+            "matched_keywords": matched
+        }
+    
+    def analyze(self, photoID: int, photo: str) -> dict | None:
+
+        if photo is None:
+            self.log.error(f"No photo supplied for photo_id={photoID}")
+            return None
+
+        try:
+
+            img = self.loadImage(photo)
+
+            eventType = self.eventType.lower().strip()
+
+            if eventType not in ds.EVENT_PROFILES:
+                self.log.warning(f"Unknown event type {eventType} for photo_id={photoID}. Using 'unknown'.")
+                eventType = "unknown"
+
+            # Generate BLIP caption
+
+            caption = self.captionImg(img)
+
+            if caption is None or caption.strip() == "":
+                caption = "None"
+
+
+            eventDetails = self.classifyEventDetails(img)
+
+            if not isinstance(eventDetails, dict):
+                self.log.error(f"classifyEventDetails returned {type(eventDetails).__name__}; expected dict for photo_id={photoID}")
+
+                eventDetails = {}
+
+            eventDetailLabel = eventDetails.get("event_detail_label","unknown")
+
+            eventDetailConfScore = float(eventDetails.get("event_detail_conf_score",0.0))
+
+            eventDetailScores = eventDetails.get("event_detail_scores",{})
+
+            if not isinstance(eventDetailScores, dict):
+                eventDetailScores = {}
+
+           
+            mood = self.classifyMood(img)
+
+            if not isinstance(mood, dict):
+                self.log.error(f"classifyMood returned {type(mood).__name__}; expected dict for photo_id={photoID}")      
+                return None
+
+            rawClipLabel = mood.get("label","unknown")
+
+            # classifyMood returns the mapped mood in "category"
+            moodLabel = mood.get("category","general")
+
+            moodConfScore = float(mood.get("score",0.0))
+
+            allMood = mood.get("all_mood_labels",[rawClipLabel])
+
+            allMoodScore = mood.get("all_mood_scores",[moodConfScore])
+
+            if not isinstance(allMood, list):
+                allMood = [str(allMood)]
+
+            if not isinstance(allMoodScore, list):
+                allMoodScore = [float(allMoodScore)]
+
+            safetyResult = self.classifySafety(img)
+
+            if not isinstance(safetyResult, dict):
+                self.log.error(f"classifySafety returned {type(safetyResult).__name__}; expected dict for photo_id={photoID}")
+
+                safetyResult = {
+                    "label": "unknown",
+                    "score": 0.0,
+                    "all_labels": [],
+                    "all_scores": [],
+                    "results": []
+                }
+
+            safetyLabel = safetyResult.get("label","unknown")
+
+            safetyConfidence = float(safetyResult.get("score",0.0))
+   
+            categoryResult = self.scorePhotoCategories(caption)
+
+            if not isinstance(categoryResult, dict):
+                self.log.error(f"scorePhotoCategories returned {type(categoryResult).__name__}; expected dict for photo_id={photoID}")
+                return None
+
+            scores = categoryResult.get("scores",{})
+
+            matchedByCategory = categoryResult.get("matched_keywords",{})
+
+            if not isinstance(scores, dict):
+                scores = {}
+
+            if not isinstance(matchedByCategory, dict):
+                matchedByCategory = {}
+
+            keywords = []
+
+            for category, matchedWords in matchedByCategory.items():
+                if category in {"quality_reject", "nudity"}:
+                    continue
+
+                if not isinstance(matchedWords, list):
+                    continue
+
+                for word in matchedWords:
+                    if word not in keywords:
+                        keywords.append(word)
+
+            
+            positiveScoreFields = [
+                "romantic",
+                "professional",
+                "friends",
+                "family",
+                "ceremony",
+                "reception",
+                "dancing",
+                "food_decor",
+                "venue_detail",
+                "happy",
+                "sentimental",
+                "energetic",
+                "calm",
+                "dramatic",
+                "nostalgic",
+                "funny",
+                "general"
+            ]
+
+            keywordScore = max([int(scores.get(field, 0))for field in positiveScoreFields],default=0)
+
+            captionQualityRejectScore = int(scores.get("quality_reject",0))
+
+            qualityRejectLabels = {"a blurry low quality photo","a random irrelevant photo"}
+
+            visualQualityReject = (safetyLabel in qualityRejectLabels)
+
+            visualQualityRejectScore = (round(safetyConfidence * 100)
+                if visualQualityReject
+                else 0
+            )
+
+            qualityRejectScore = max(captionQualityRejectScore,visualQualityRejectScore)
+
+
+            nudityCheck = (safetyLabel == "nudity")
+
+            nudityScore = (round(safetyConfidence * 100)
+                if nudityCheck
+                else 0
+            )
+
+            # Do not assign a positive ranking score to rejected images.
+            if (
+                nudityCheck
+                or visualQualityReject
+                or captionQualityRejectScore >= 70
+            ):
+                keywordScore = 0
+
+            rankingData = ds.ImageRankingData(
+                photo_id=photoID,
+
+                caption=caption,
+                mood_label=moodLabel,
+                mood_conf_score=moodConfScore,
+                all_mood_labels=allMood,
+                keyword_score=keywordScore,
+                keywords=keywords,
+                nudity_check=nudityCheck,
+                all_mood_scores=allMoodScore,
+
+                event_type=eventType,
+                event_type_conf_score=0.0,
+                event_detail_label=eventDetailLabel,
+                event_detail_conf_score=eventDetailConfScore,
+                event_detail_scores=eventDetailScores,
+
+                romantic=int(scores.get("romantic", 0)),
+                professional=int(scores.get("professional", 0)),
+                friends=int(scores.get("friends", 0)),
+                family=int(scores.get("family", 0)),
+                ceremony=int(scores.get("ceremony", 0)),
+                reception=int(scores.get("reception", 0)),
+                dancing=int(scores.get("dancing", 0)),
+                food_decor=int(scores.get("food_decor", 0)),
+                venue_detail=int(scores.get("venue_detail", 0)),
+                happy=int(scores.get("happy", 0)),
+                sentimental=int(scores.get("sentimental", 0)),
+                energetic=int(scores.get("energetic", 0)),
+                calm=int(scores.get("calm", 0)),
+                dramatic=int(scores.get("dramatic", 0)),
+                nostalgic=int(scores.get("nostalgic", 0)),
+                funny=int(scores.get("funny", 0)),
+                general=int(scores.get("general", 0)),
+
+                quality_reject=qualityRejectScore,
+                nudity=nudityScore,
+                matched_keywords=matchedByCategory
+            )
+
+            dataDict = rankingData.model_dump()
+
+            if not isinstance(dataDict, dict):
+                raise TypeError("ImageRankingData.model_dump() did not return a dictionary")
+
+            return dataDict
+
+        except Exception:
+            self.log.exception( f"IMAGE_ANALYSIS_FAILED photo_id={photoID} photo={photo}")
+            raise
         
-        return ph.batchRun(media, self.analyze, self.db.insertImageRanking, dtype)
+    def batchRunIR(self,media: list[dict],dtype: str = "photo_id"):
+        if not media:
+            raise ValueError("No files found")
+        firstid = media[0].get(dtype)
+        self.eventType = str(self.db.getEventTypeFromMedia(firstid, dtype).get('type'))
+        
+
+        return ph.batchRun(media,self.analyze,self.db.insertImageRanking,dtype)
+    

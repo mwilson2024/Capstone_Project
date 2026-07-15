@@ -181,7 +181,6 @@ class Helpers():
     def batchRun(mediaList: list[dict], procFunc, insFunc, dtype: str = 'photo_id'):
         results = []
 
-
         try:
             for media in mediaList:
                 

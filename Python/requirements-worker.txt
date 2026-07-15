@@ -12,7 +12,7 @@ pwdlib[argon2]
 # Cloud / database
 azure-storage-queue
 supabase
-
+azure-storage-blob
 # Images / computer vision
 Pillow
 ImageHash
