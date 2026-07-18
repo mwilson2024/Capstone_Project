@@ -17,7 +17,8 @@ export const onUnauthorized = (handler: () => void) => {
 export async function apiFetch<T = any>(
   path: string,
   body?: unknown,
-  method: string = body === undefined ? "GET" : "POST"
+  method: string = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (hasToken()) headers.Authorization = `Bearer ${token}`;
@@ -26,6 +27,7 @@ export async function apiFetch<T = any>(
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
 
   if (res.status === 401 && hasToken()) {

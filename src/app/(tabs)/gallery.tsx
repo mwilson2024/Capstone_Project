@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { API_URL } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
 
@@ -344,9 +344,8 @@ export default function GalleryScreen() {
 
     (async () => {
       try {
-        const response = await fetch(`${API_URL}/events`, { signal: controller.signal });
-        if (!response.ok) throw new Error("Failed to fetch galleries");
-        setGalleries(await response.json());
+        const data = await apiFetch("/events", undefined, "GET", controller.signal);
+        setGalleries(data);
         setLoading(false);
       } catch (err: any) {
         if (err.name === "AbortError") return;
