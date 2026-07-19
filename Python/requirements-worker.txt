@@ -15,6 +15,7 @@ supabase
 azure-storage-blob
 # Images / computer vision
 Pillow
+pillow-heif
 ImageHash
 opencv-python
 numpy

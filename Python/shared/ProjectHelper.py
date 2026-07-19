@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from pathlib import Path
 import json
 import base64
 import imagehash
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.ExifTags import GPSTAGS, TAGS
 from pwdlib import PasswordHash
 
@@ -92,6 +93,33 @@ class Helpers():
         except Exception as e:
             print(f"Metadata error: {e}")
             return metadata
+
+    @staticmethod
+    def normalizeImages(mediaList: list[dict]) -> list[dict]:
+        from pillow_heif import register_heif_opener
+
+        register_heif_opener()
+
+        for media in mediaList:
+            filePath = media.get("file_path")
+            if not filePath:
+                continue
+
+            sourcePath = Path(filePath)
+            if sourcePath.suffix.lower() not in {".heic", ".heif"}:
+                continue
+
+            outputPath = sourcePath.with_suffix(".jpg")
+
+            with Image.open(sourcePath) as sourceImage:
+                convertedImage = ImageOps.exif_transpose(sourceImage).convert("RGB")
+                convertedImage.save(outputPath, "JPEG", quality=95)
+
+            sourcePath.unlink()
+            media["file_path"] = str(outputPath)
+
+        return mediaList
+
     @staticmethod
     def getIDNum(s:str, pos:int, symbol : str = '_'):
         return int(s.split(symbol)[pos])

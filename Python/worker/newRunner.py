@@ -199,6 +199,7 @@ class newRunner:
             with tempfile.TemporaryDirectory() as tempDir:
                 tempDir = Path(tempDir)
                 mediaSet = self.blob.downloadToTemp(photos, tempDir, dt2)
+                mediaSet = ph.normalizeImages(mediaSet)
 
                 if not mediaSet:
                     raise ValueError(f"No {dt} files downloaded for preprocess.")
