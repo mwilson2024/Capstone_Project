@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { API_URL, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { useCurrentEvent } from "@/lib/CurrentEventContext";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
 
@@ -34,16 +35,16 @@ type EventOption = { event_id: number; name: string };
 export default function UploadScreen() {
   const { colors: c } = useTheme();
   const { loggedIn } = useAuth();
+  const { eventId, setCurrentEvent, clearCurrentEvent } = useCurrentEvent();
   const s = useMemo(() => makeStyles(c), [c]);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
   const [securityConfirmed, setSecurityConfirmed] = useState(false);
-  const [eventId, setEventId] = useState("");
+  const [manualId, setManualId] = useState(eventId ? String(eventId) : "");
   const [events, setEvents] = useState<EventOption[]>([]);
 
   useEffect(() => {
-    setEventId("");
     if (!loggedIn) {
       setEvents([]);
       return;
@@ -52,6 +53,10 @@ export default function UploadScreen() {
       .then((res) => setEvents(Array.isArray(res) ? res : res.events ?? []))
       .catch(() => {});
   }, [loggedIn]);
+
+  useEffect(() => {
+    if (eventId === null) setManualId("");
+  }, [eventId]);
 
   const isValidImage = (uri: string) => {
     const lower = uri.toLowerCase();
@@ -64,8 +69,7 @@ export default function UploadScreen() {
   };
 
   const validateUpload = () => {
-    const id = Number(eventId);
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!eventId) {
       Alert.alert("No Event Selected", "Choose which event these photos belong to.");
       return false;
     }
@@ -149,7 +153,7 @@ export default function UploadScreen() {
     try {
       const formData = new FormData();
 
-      formData.append("eventID", String(Number(eventId)));
+      formData.append("eventID", String(eventId));
       formData.append("qrToken", QR_TOKEN);
       formData.append("guestID", String(GUEST_ID));
 
@@ -218,14 +222,14 @@ export default function UploadScreen() {
             {events.map((ev) => (
               <TouchableOpacity
                 key={ev.event_id}
-                style={[s.chip, Number(eventId) === ev.event_id && s.chipSelected]}
-                onPress={() => setEventId(String(ev.event_id))}
+                style={[s.chip, eventId === ev.event_id && s.chipSelected]}
+                onPress={() => setCurrentEvent(ev.event_id, ev.name)}
                 activeOpacity={0.8}
               >
                 <Text
                   style={[
                     s.chipText,
-                    Number(eventId) === ev.event_id && s.chipTextSelected,
+                    eventId === ev.event_id && s.chipTextSelected,
                   ]}
                 >
                   {ev.name}
@@ -239,8 +243,13 @@ export default function UploadScreen() {
             placeholder="Event ID"
             placeholderTextColor={c.textMuted}
             keyboardType="number-pad"
-            value={eventId}
-            onChangeText={setEventId}
+            value={manualId}
+            onChangeText={(t) => {
+              setManualId(t);
+              const n = Number(t);
+              if (Number.isInteger(n) && n > 0) setCurrentEvent(n);
+              else clearCurrentEvent();
+            }}
           />
         )}
       </View>

@@ -8,6 +8,7 @@ import {
 import * as MediaLibrary from "expo-media-library";
 import { useCallback, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -21,6 +22,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { apiUpload } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
+import { useCurrentEvent } from "@/lib/CurrentEventContext";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -105,12 +109,18 @@ const perm = StyleSheet.create({
 //Photo Preview Modal
 function PhotoPreview({
   photo,
+  uploadLabel,
+  uploading,
   onDiscard,
   onSave,
+  onUpload,
 }: {
   photo: CapturedPhoto;
+  uploadLabel: string;
+  uploading: boolean;
   onDiscard: () => void;
   onSave: () => void;
+  onUpload: () => void;
 }) {
   return (
     <Modal visible animationType="fade" statusBarTranslucent>
@@ -121,9 +131,13 @@ function PhotoPreview({
           style={preview.image}
           resizeMode="contain"
         />
-        
+
         <View style={preview.topBar}>
-          <TouchableOpacity style={preview.iconBtn} onPress={onDiscard}>
+          <TouchableOpacity
+            style={preview.iconBtn}
+            onPress={onDiscard}
+            accessibilityLabel="Close preview"
+          >
             <Ionicons name="close" size={24} color="#F0F4FF" />
           </TouchableOpacity>
           <Text style={preview.label}>Preview</Text>
@@ -131,14 +145,29 @@ function PhotoPreview({
         </View>
 
         <View style={preview.bottomBar}>
-          <TouchableOpacity style={preview.discardBtn} onPress={onDiscard} activeOpacity={0.8}>
-            <Ionicons name="trash-outline" size={20} color="#F87171" />
-            <Text style={preview.discardText}>Discard</Text>
+          <TouchableOpacity
+            style={[preview.uploadBtn, uploading && preview.uploadBtnBusy]}
+            onPress={onUpload}
+            activeOpacity={0.85}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
+            )}
+            <Text style={preview.uploadText}>{uploadLabel}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={preview.saveBtn} onPress={onSave} activeOpacity={0.85}>
-            <Ionicons name="download-outline" size={20} color="#fff" />
-            <Text style={preview.saveText}>Save Photo</Text>
-          </TouchableOpacity>
+          <View style={preview.actionRow}>
+            <TouchableOpacity style={preview.discardBtn} onPress={onDiscard} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={20} color="#F87171" />
+              <Text style={preview.discardText}>Discard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={preview.saveBtn} onPress={onSave} activeOpacity={0.85}>
+              <Ionicons name="download-outline" size={20} color="#fff" />
+              <Text style={preview.saveText}>Save Photo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -177,8 +206,31 @@ const preview = StyleSheet.create({
     bottom: Platform.OS === "ios" ? 44 : 24,
     left: 20,
     right: 20,
+    gap: 12,
+  },
+  actionRow: {
     flexDirection: "row",
     gap: 12,
+  },
+  uploadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#2563EB",
+    borderRadius: 14,
+    paddingVertical: 14,
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  uploadBtnBusy: { opacity: 0.65 },
+  uploadText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   discardBtn: {
     flex: 1,
@@ -257,12 +309,15 @@ const thumb = StyleSheet.create({
 
 // Camera Screen
 export default function CameraScreen() {
+  const { loggedIn } = useAuth();
+  const { eventId, eventName } = useCurrentEvent();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>("back");
   const [flash, setFlash] = useState<FlashMode>("off");
   const [zoom, setZoom] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<CapturedPhoto | null>(null);
   const cameraRef = useRef<CameraView>(null);
@@ -323,6 +378,36 @@ export default function CameraScreen() {
 
   const handleDiscard = () => {
     setPreviewPhoto(null);
+  };
+
+  const handleUpload = async () => {
+    if (!previewPhoto || isUploading) return;
+    if (!loggedIn) {
+      Alert.alert("Login Required", "Log in to upload photos.");
+      return;
+    }
+    if (!eventId) {
+      Alert.alert("No Event Selected", "Pick an event on the Upload tab first.");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const form = new FormData();
+      form.append("eventID", String(eventId));
+      form.append("files", {
+        uri: previewPhoto.uri,
+        name: `photo_${previewPhoto.id}.jpg`,
+        type: "image/jpeg",
+      } as any);
+      await apiUpload("/upload/user", form);
+      setPreviewPhoto(null);
+      Alert.alert("Uploaded", `Photo uploaded to ${eventName ?? `event ${eventId}`}.`);
+    } catch (error: any) {
+      Alert.alert("Upload Failed", error.message ?? "Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Permission gate
@@ -413,8 +498,17 @@ export default function CameraScreen() {
       {previewPhoto && (
         <PhotoPreview
           photo={previewPhoto}
+          uploadLabel={
+            eventName
+              ? `Upload to ${eventName}`
+              : eventId
+                ? `Upload to Event ${eventId}`
+                : "Upload"
+          }
+          uploading={isUploading}
           onDiscard={handleDiscard}
           onSave={handleSave}
+          onUpload={handleUpload}
         />
       )}
     </View>

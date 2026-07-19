@@ -14,22 +14,10 @@ export const onUnauthorized = (handler: () => void) => {
   unauthorizedHandler = handler;
 };
 
-export async function apiFetch<T = any>(
-  path: string,
-  body?: unknown,
-  method: string = body === undefined ? "GET" : "POST",
-  signal?: AbortSignal
-): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (hasToken()) headers.Authorization = `Bearer ${token}`;
+const authHeaders = (): Record<string, string> =>
+  hasToken() ? { Authorization: `Bearer ${token}` } : {};
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
-
+async function parse<T>(res: Response): Promise<T> {
   if (res.status === 401 && hasToken()) {
     setToken("");
     unauthorizedHandler?.();
@@ -41,4 +29,28 @@ export async function apiFetch<T = any>(
     throw new Error(typeof err.detail === "string" ? err.detail : "Request failed.");
   }
   return res.json();
+}
+
+export async function apiFetch<T = any>(
+  path: string,
+  body?: unknown,
+  method: string = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal
+): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  return parse<T>(res);
+}
+
+export async function apiUpload<T = any>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  return parse<T>(res);
 }
