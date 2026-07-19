@@ -28,17 +28,67 @@ const THUMB = (SCREEN_WIDTH - 56) / 3;
 
 const MAX_PHOTOS = 20;
 
+type PhotoMimeType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp"
+  | "image/heic"
+  | "image/heif";
+
 type PickedPhoto = {
   id: string;
   uri: string;
   name: string;
-  mimeType: "image/jpeg" | "image/png";
+  mimeType: PhotoMimeType;
 };
 type EventOption = { event_id: number; name: string };
 type UploadResponse = {
   uploaded: number;
   results?: Array<{ status?: string; error?: string }>;
 };
+
+const PHOTO_MIME_BY_EXTENSION: Record<string, PhotoMimeType> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+};
+
+const PHOTO_EXTENSION_BY_MIME: Record<PhotoMimeType, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+};
+
+function getSupportedMimeType(
+  mimeType: string | null | undefined,
+  fileNameOrUri: string
+): PhotoMimeType | null {
+  if (
+    mimeType === "image/jpeg" ||
+    mimeType === "image/png" ||
+    mimeType === "image/gif" ||
+    mimeType === "image/webp" ||
+    mimeType === "image/heic" ||
+    mimeType === "image/heif"
+  ) {
+    return mimeType;
+  }
+
+  const extension = fileNameOrUri
+    .split(/[?#]/, 1)[0]
+    .split(".")
+    .pop()
+    ?.toLowerCase();
+  return extension ? PHOTO_MIME_BY_EXTENSION[extension] ?? null : null;
+}
 
 export default function UploadScreen() {
   const { colors: c } = useTheme();
@@ -89,7 +139,7 @@ export default function UploadScreen() {
     null;
 
   const isValidImage = (photo: PickedPhoto) =>
-    photo.mimeType === "image/jpeg" || photo.mimeType === "image/png";
+    getSupportedMimeType(photo.mimeType, photo.name) !== null;
 
   const validateUpload = () => {
     if (!loggedIn) {
@@ -114,7 +164,10 @@ export default function UploadScreen() {
 
     const invalidPhoto = photos.find((photo) => !isValidImage(photo));
     if (invalidPhoto) {
-      Alert.alert("Invalid File", "Only JPG, JPEG, and PNG image files are allowed.");
+      Alert.alert(
+        "Invalid File",
+        "Only JPG, JPEG, PNG, GIF, WebP, HEIC, and HEIF images are allowed."
+      );
       return false;
     }
 
@@ -144,31 +197,29 @@ export default function UploadScreen() {
     });
 
     if (!result.canceled) {
-      const picked: PickedPhoto[] = result.assets
-        .filter(
-          (asset) =>
-            asset.mimeType === "image/jpeg" ||
-            asset.mimeType === "image/png" ||
-            /\.(jpe?g|png)$/i.test(asset.fileName ?? asset.uri)
-        )
-        .map((asset, index) => {
-          const png =
-            asset.mimeType === "image/png" ||
-            /\.png$/i.test(asset.fileName ?? asset.uri);
-          return {
+      const picked: PickedPhoto[] = result.assets.flatMap((asset, index) => {
+        const mimeType = getSupportedMimeType(
+          asset.mimeType,
+          asset.fileName ?? asset.uri
+        );
+        if (!mimeType) return [];
+
+        return [
+          {
             id: `${Date.now()}-${index}`,
             uri: asset.uri,
             name:
               asset.fileName ??
-              `photo_${Date.now()}_${index}.${png ? "png" : "jpg"}`,
-            mimeType: png ? "image/png" : "image/jpeg",
-          };
-        });
+              `photo_${Date.now()}_${index}.${PHOTO_EXTENSION_BY_MIME[mimeType]}`,
+            mimeType,
+          },
+        ];
+      });
 
       if (picked.length !== result.assets.length) {
         Alert.alert(
           "Unsupported Files",
-          "Only JPG, JPEG, and PNG images were added."
+          "Only JPG, JPEG, PNG, GIF, WebP, HEIC, and HEIF images were added."
         );
       }
 
@@ -405,8 +456,8 @@ export default function UploadScreen() {
         <View style={{ flex: 1 }}>
           <Text style={s.securityTitle}>Security Check</Text>
           <Text style={s.securityText}>
-            Only JPG and PNG files are allowed. Uploads are authenticated and
-            added to the selected event.
+            JPG, PNG, GIF, WebP, HEIC, and HEIF files are allowed. Uploads are
+            authenticated and added to the selected event.
           </Text>
         </View>
       </View>
