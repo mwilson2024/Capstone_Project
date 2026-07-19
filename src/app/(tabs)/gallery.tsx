@@ -27,10 +27,78 @@ type Gallery = {
   title: string;
   date: string;
   photoCount: number;
+  videoCount: number;
   coverColor: string;
   accentColor: string;
   photos: Photo[];
 };
+
+type EventRecord = {
+  event_id: number;
+  name: string;
+  event_date: string;
+};
+
+type EventsResponse = {
+  events: EventRecord[];
+};
+
+type MediaRecord = {
+  id: number;
+  display_url: string | null;
+};
+
+type EventMediaResponse = {
+  photos: MediaRecord[];
+  video_count: number;
+};
+
+const GALLERY_COLORS = [
+  { cover: "#1A2F5A", accent: "#3B82F6" },
+  { cover: "#312E81", accent: "#8B5CF6" },
+  { cover: "#164E63", accent: "#06B6D4" },
+  { cover: "#78350F", accent: "#F59E0B" },
+];
+
+function formatEventDate(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+async function loadGallery(event: EventRecord, index: number): Promise<Gallery> {
+  const media = await apiFetch<EventMediaResponse>(
+    `/events/${event.event_id}/media?dataType=both`
+  );
+  const palette = GALLERY_COLORS[index % GALLERY_COLORS.length];
+  const photos = (media.photos ?? [])
+    .filter(
+      (photo): photo is MediaRecord & { display_url: string } =>
+        typeof photo.display_url === "string" && photo.display_url.length > 0
+    )
+    .map((photo) => ({
+      id: String(photo.id),
+      uri: photo.display_url,
+    }));
+
+  return {
+    id: String(event.event_id),
+    title: event.name,
+    date: formatEventDate(event.event_date),
+    photoCount: photos.length,
+    videoCount: media.video_count ?? 0,
+    coverColor: palette.cover,
+    accentColor: palette.accent,
+    photos,
+  };
+}
 
 // Gallery Card
 function GalleryCard({
@@ -49,14 +117,28 @@ function GalleryCard({
       onPress={onPress}
     >
       <View style={[gc.cover, { backgroundColor: gallery.coverColor }]}>
-        <Image
-          source={{ uri: gallery.photos[0]?.uri }}
-          style={gc.coverImage}
-          resizeMode="cover"
-        />
-        <View style={[gc.badge, { backgroundColor: gallery.accentColor }]}>
-          <Ionicons name="images" size={10} color="#fff" />
-          <Text style={gc.badgeText}>{gallery.photoCount}</Text>
+        {gallery.photos[0] ? (
+          <Image
+            source={{ uri: gallery.photos[0].uri }}
+            style={gc.coverImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={gc.emptyCover}>
+            <Ionicons name="videocam" size={34} color="#fff" />
+          </View>
+        )}
+        <View style={gc.badges}>
+          <View style={[gc.badge, { backgroundColor: gallery.accentColor }]}>
+            <Ionicons name="images" size={10} color="#fff" />
+            <Text style={gc.badgeText}>{gallery.photoCount}</Text>
+          </View>
+          {gallery.videoCount > 0 ? (
+            <View style={[gc.badge, { backgroundColor: "#111827" }]}>
+              <Ionicons name="videocam" size={11} color="#fff" />
+              <Text style={gc.badgeText}>{gallery.videoCount}</Text>
+            </View>
+          ) : null}
         </View>
         <View style={[gc.accentBar, { backgroundColor: gallery.accentColor }]} />
       </View>
@@ -81,10 +163,21 @@ const makeCardStyles = (c: ThemeColors) =>
     },
     cover: { height: CARD_WIDTH * 0.75, width: "100%", overflow: "hidden" },
     coverImage: { width: "100%", height: "100%", opacity: 0.85 },
-    badge: {
+    emptyCover: {
+      width: "100%",
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      opacity: 0.8,
+    },
+    badges: {
       position: "absolute",
       top: 8,
       right: 8,
+      flexDirection: "row",
+      gap: 6,
+    },
+    badge: {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
@@ -125,8 +218,16 @@ export default function GalleryScreen() {
 
     (async () => {
       try {
-        const data = await apiFetch("/events", undefined, "GET", controller.signal);
-        setGalleries(data);
+        const response = await apiFetch<EventsResponse>(
+          "/users/me/events",
+          undefined,
+          "GET",
+          controller.signal
+        );
+        const loaded = await Promise.all(
+          response.events.map((event, index) => loadGallery(event, index))
+        );
+        setGalleries(loaded);
         setLoading(false);
       } catch (err: any) {
         if (err.name === "AbortError") return;
