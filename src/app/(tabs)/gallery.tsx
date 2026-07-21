@@ -52,6 +52,8 @@ type MediaRecord = {
 type EventMediaResponse = {
   photos: MediaRecord[];
   video_count: number;
+  photo_total?: number;
+  video_total?: number;
 };
 
 const GALLERY_COLORS = [
@@ -84,7 +86,7 @@ function formatEventDate(value: string) {
 
 async function loadGallery(event: EventRecord, index: number): Promise<Gallery> {
   const media = await apiFetch<EventMediaResponse>(
-    `/events/${event.event_id}/media?dataType=both`
+    `/events/${event.event_id}/media?dataType=both&limit=1&offset=0`
   );
   const palette = GALLERY_COLORS[index % GALLERY_COLORS.length];
   const photos = (media.photos ?? [])
@@ -102,8 +104,8 @@ async function loadGallery(event: EventRecord, index: number): Promise<Gallery> 
     id: String(event.event_id),
     title: event.name,
     date: formatEventDate(event.event_date),
-    photoCount: photos.length,
-    videoCount: media.video_count ?? 0,
+    photoCount: media.photo_total ?? photos.length,
+    videoCount: media.video_total ?? media.video_count ?? 0,
     coverColor: palette.cover,
     accentColor: palette.accent,
     photos,

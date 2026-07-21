@@ -11,7 +11,7 @@ class Users:
         reqMinLen = 8
         reqMaxLen = 15
         pwLen = len(pw)
-        specialSym = ['$', '@', '#', '%']
+        specialSym = ['$', '@', '#', '%', '!']
         valid = True
         reason = []
 
@@ -87,7 +87,7 @@ class Users:
         if not res:
             return False, ["User could not be created."]
         
-        return res
+        return True, res
     
     def updateUser(self,userID: int,user: ds.userProfileUpdate,):
         changes = user.model_dump(exclude_none=True)
@@ -122,7 +122,7 @@ class Users:
         if not user:
             return "not_found"
         
-        pwResult = self.verifyCreatePW(user.pwd)
+        pwResult = self.verifyCreatePW(newPassword)
         if not pwResult['valid']:
             return  pwResult['reason']
 

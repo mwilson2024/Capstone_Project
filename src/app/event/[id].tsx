@@ -1,10 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   FlatList,
   Image,
   Modal,
@@ -15,18 +14,19 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import GeneratedVideoPlayer from "@/components/GeneratedVideoPlayer";
 import Lightbox, { LightboxPhoto } from "@/components/Lightbox";
 import { apiFetch } from "@/lib/api";
 import { useCurrentEvent } from "@/lib/CurrentEventContext";
+import { downloadPhoto } from "@/lib/downloadPhoto";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const NUM_COLS = 3;
-const CELL = (SCREEN_WIDTH - 4) / NUM_COLS;
+const MEDIA_PAGE_SIZE = 30;
 
 type EventInfo = {
   event_id: number;
@@ -46,12 +46,14 @@ type MediaItem = {
   filter_status?: string | null;
   filter_reason?: string | null;
   user_approved?: boolean | number | string | null;
+  image_hash?: string | null;
 };
 
 type EventPhoto = LightboxPhoto & {
   filterStatus: string | null;
   filterReason: string | null;
   userApproved: boolean;
+  imageHash: string | null;
 };
 
 type UploadedVideo = {
@@ -70,6 +72,14 @@ type GeneratedVideo = {
 type EventMediaResponse = {
   photos: MediaItem[];
   videos: MediaItem[];
+  photo_count?: number;
+  video_count?: number;
+  photo_total?: number;
+  video_total?: number;
+  has_more_photos?: boolean;
+  has_more_videos?: boolean;
+  offset?: number;
+  limit?: number;
 };
 
 type GeneratedVideoRecord = {
@@ -128,6 +138,97 @@ function hasQualityFilterRejection(reason: string | null | undefined) {
   );
 }
 
+function getPhotoFileName(photo: EventPhoto) {
+  try {
+    const pathName = new URL(photo.uri).pathname;
+    const urlName = decodeURIComponent(pathName.split("/").pop() ?? "");
+    if (/\.[a-zA-Z0-9]{2,5}$/.test(urlName)) return urlName;
+  } catch {
+    // Use the safe fallback below for relative or malformed URLs.
+  }
+
+  return `photo-${photo.id}.jpg`;
+}
+
+function mapPhotos(items: MediaItem[]): EventPhoto[] {
+  return dedupePhotos(
+    items
+    .filter((photo) => photo.display_url)
+    .map((photo) => ({
+      id: String(photo.id),
+      uri: photo.display_url as string,
+      isSensitive: isSensitivePhoto(photo),
+      filterStatus: photo.filter_status ?? null,
+      filterReason: photo.filter_reason ?? null,
+      userApproved: isUserApproved(photo.user_approved),
+      imageHash: photo.image_hash ?? null,
+    }))
+  );
+}
+
+function getPhotoUriKey(uri: string) {
+  try {
+    const parsed = new URL(uri);
+    return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return uri.split(/[?#]/, 1)[0].toLowerCase();
+  }
+}
+
+function dedupePhotos(items: EventPhoto[]) {
+  const ids = new Set<string>();
+  const uris = new Set<string>();
+  const hashes: string[] = [];
+
+  return items.filter((photo) => {
+    const uriKey = getPhotoUriKey(photo.uri);
+    const imageHash = photo.imageHash?.trim().toLowerCase() || null;
+    const matchesHash = Boolean(
+      imageHash &&
+        hashes.some(
+          (existingHash) => perceptualHashDistance(existingHash, imageHash) <= 6
+        )
+    );
+
+    if (ids.has(photo.id) || uris.has(uriKey) || matchesHash) return false;
+    ids.add(photo.id);
+    uris.add(uriKey);
+    if (imageHash) hashes.push(imageHash);
+    return true;
+  });
+}
+
+function perceptualHashDistance(left: string, right: string) {
+  if (left.length !== right.length || !/^[0-9a-f]+$/i.test(left + right)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  let distance = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    let differentBits =
+      Number.parseInt(left[index], 16) ^ Number.parseInt(right[index], 16);
+    while (differentBits > 0) {
+      distance += differentBits & 1;
+      differentBits >>= 1;
+    }
+  }
+  return distance;
+}
+
+function mapUploadedVideos(items: MediaItem[]): UploadedVideo[] {
+  return items
+    .filter((video) => video.display_url)
+    .map((video) => ({
+      id: String(video.id),
+      uri: video.display_url as string,
+      title:
+        video.title ||
+        video.original_file_name ||
+        `Uploaded video ${video.id}`,
+      durationSeconds: video.duration_seconds ?? null,
+    }));
+}
+
 function formatDuration(seconds: number | null) {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) {
     return "Video";
@@ -157,12 +258,20 @@ function UploadedVideoModal({
 
     (async () => {
       try {
-        const media = await apiFetch<EventMediaResponse>(
-          `/events/${eventId}/media?dataType=videos`
-        );
-        const current = (media.videos ?? []).find(
-          (item) => String(item.id) === video.id
-        );
+        let offset = 0;
+        let current: MediaItem | undefined;
+
+        do {
+          const media = await apiFetch<EventMediaResponse>(
+            `/events/${eventId}/media?dataType=videos&limit=100&offset=${offset}`
+          );
+          current = (media.videos ?? []).find(
+            (item) => String(item.id) === video.id
+          );
+          offset += media.video_count ?? media.videos?.length ?? 0;
+
+          if (current || !media.has_more_videos || cancelled) break;
+        } while (true);
 
         if (!current?.display_url) {
           throw new Error("This uploaded video is no longer available.");
@@ -254,12 +363,24 @@ function UploadedVideoModal({
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { width: viewportWidth } = useWindowDimensions();
+  const photoCellSize = viewportWidth / NUM_COLS;
   const { colors: c } = useTheme();
   const { setCurrentEvent } = useCurrentEvent();
   const s = useMemo(() => makeStyles(c), [c]);
   const [event, setEvent] = useState<EventInfo | null>(null);
   const [photos, setPhotos] = useState<EventPhoto[]>([]);
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
+  const [photoTotal, setPhotoTotal] = useState(0);
+  const [videoTotal, setVideoTotal] = useState(0);
+  const [photoOffset, setPhotoOffset] = useState(0);
+  const [videoOffset, setVideoOffset] = useState(0);
+  const [hasMorePhotos, setHasMorePhotos] = useState(false);
+  const [hasMoreVideos, setHasMoreVideos] = useState(false);
+  const [loadingMorePhotos, setLoadingMorePhotos] = useState(false);
+  const [loadingMoreVideos, setLoadingMoreVideos] = useState(false);
+  const loadingMorePhotosRef = useRef(false);
+  const loadingMoreVideosRef = useRef(false);
   const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
   const [mediaTab, setMediaTab] = useState<
     "photos" | "videos" | "generated"
@@ -271,6 +392,7 @@ export default function EventDetailScreen() {
   const [photoActions, setPhotoActions] = useState<EventPhoto | null>(null);
   const [photoToDelete, setPhotoToDelete] = useState<EventPhoto | null>(null);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
+  const [downloadingPhoto, setDownloadingPhoto] = useState(false);
   const [updatingPhotoPreference, setUpdatingPhotoPreference] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -327,6 +449,8 @@ export default function EventDetailScreen() {
       setPhotos((current) =>
         current.filter((photo) => photo.id !== photoToDelete.id)
       );
+      setPhotoTotal((current) => Math.max(0, current - 1));
+      setPhotoOffset((current) => Math.max(0, current - 1));
       setLightboxIndex(null);
       setPhotoToDelete(null);
     } catch (caught) {
@@ -339,17 +463,61 @@ export default function EventDetailScreen() {
     }
   };
 
+  const downloadSelectedPhoto = async () => {
+    if (!photoActions || downloadingPhoto) return;
+
+    const selectedPhoto = photoActions;
+    setDownloadingPhoto(true);
+    try {
+      await downloadPhoto(
+        selectedPhoto.uri,
+        getPhotoFileName(selectedPhoto)
+      );
+      setPhotoActions(null);
+    } catch (caught) {
+      Alert.alert(
+        "Could Not Download Photo",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      setDownloadingPhoto(false);
+    }
+  };
+
+  const downloadLightboxPhoto = async (photo: LightboxPhoto) => {
+    const selectedPhoto = photos.find((item) => item.id === photo.id);
+    if (!selectedPhoto) {
+      throw new Error("This photo is no longer available.");
+    }
+
+    await downloadPhoto(
+      selectedPhoto.uri,
+      getPhotoFileName(selectedPhoto)
+    );
+  };
+
   useEffect(() => {
     if (!id) return;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setPhotos([]);
+    setVideos([]);
+    setPhotoOffset(0);
+    setVideoOffset(0);
+    setHasMorePhotos(false);
+    setHasMoreVideos(false);
 
     (async () => {
       try {
         const [eventRes, mediaRes, generatedRes] = await Promise.all([
           apiFetch(`/events/${id}`, undefined, "GET", controller.signal),
-          apiFetch(`/events/${id}/media?dataType=both`, undefined, "GET", controller.signal),
+          apiFetch<EventMediaResponse>(
+            `/events/${id}/media?dataType=both&limit=${MEDIA_PAGE_SIZE}&offset=0`,
+            undefined,
+            "GET",
+            controller.signal
+          ),
           apiFetch<GeneratedVideosResponse>(
             `/events/${id}/generated-videos`,
             undefined,
@@ -358,30 +526,27 @@ export default function EventDetailScreen() {
           ),
         ]);
         setEvent(eventRes.event);
-        setPhotos(
-          (mediaRes.photos ?? [])
-            .filter((p: MediaItem) => p.display_url)
-            .map((p: MediaItem) => ({
-              id: String(p.id),
-              uri: p.display_url as string,
-              isSensitive: isSensitivePhoto(p),
-              filterStatus: p.filter_status ?? null,
-              filterReason: p.filter_reason ?? null,
-              userApproved: isUserApproved(p.user_approved),
-            }))
-        );
-        const loadedVideos = (mediaRes.videos ?? [])
-          .filter((video: MediaItem) => video.display_url)
-          .map((video: MediaItem) => ({
-            id: String(video.id),
-            uri: video.display_url as string,
-            title:
-              video.title ||
-              video.original_file_name ||
-              `Uploaded video ${video.id}`,
-            durationSeconds: video.duration_seconds ?? null,
-          }));
+        const rawPhotoCount = mediaRes.photo_count ?? mediaRes.photos?.length ?? 0;
+        const rawVideoCount = mediaRes.video_count ?? mediaRes.videos?.length ?? 0;
+        const reportedPhotoTotal = mediaRes.photo_total ?? rawPhotoCount;
+        const reportedVideoTotal = mediaRes.video_total ?? rawVideoCount;
+        const loadedPhotos = mapPhotos(mediaRes.photos ?? []);
+        const loadedVideos = mapUploadedVideos(mediaRes.videos ?? []);
+
+        setPhotos(loadedPhotos);
         setVideos(loadedVideos);
+        setPhotoTotal(reportedPhotoTotal > 0 ? reportedPhotoTotal : rawPhotoCount);
+        setVideoTotal(reportedVideoTotal > 0 ? reportedVideoTotal : rawVideoCount);
+        setPhotoOffset(rawPhotoCount);
+        setVideoOffset(rawVideoCount);
+        setHasMorePhotos(
+          mediaRes.has_more_photos === true ||
+            (reportedPhotoTotal === 0 && rawPhotoCount === MEDIA_PAGE_SIZE)
+        );
+        setHasMoreVideos(
+          mediaRes.has_more_videos === true ||
+            (reportedVideoTotal === 0 && rawVideoCount === MEDIA_PAGE_SIZE)
+        );
         const loadedGeneratedVideos = (generatedRes.videos ?? [])
           .filter(
             (video) =>
@@ -417,6 +582,73 @@ export default function EventDetailScreen() {
 
     return () => controller.abort();
   }, [id, attempt]);
+
+  const loadMorePhotos = async () => {
+    if (!id || loadingMorePhotosRef.current || !hasMorePhotos) return;
+
+    loadingMorePhotosRef.current = true;
+    setLoadingMorePhotos(true);
+    try {
+      const response = await apiFetch<EventMediaResponse>(
+        `/events/${id}/media?dataType=photos&limit=${MEDIA_PAGE_SIZE}&offset=${photoOffset}`
+      );
+      const rawCount = response.photo_count ?? response.photos?.length ?? 0;
+      const loaded = mapPhotos(response.photos ?? []);
+
+      setPhotos((current) => dedupePhotos([...current, ...loaded]));
+      setPhotoOffset((current) => current + rawCount);
+      if ((response.photo_total ?? 0) > 0) {
+        setPhotoTotal(response.photo_total as number);
+      }
+      setHasMorePhotos(
+        response.has_more_photos === true ||
+          ((response.photo_total ?? 0) === 0 && rawCount === MEDIA_PAGE_SIZE)
+      );
+    } catch (caught) {
+      Alert.alert(
+        "Could Not Load More Photos",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      loadingMorePhotosRef.current = false;
+      setLoadingMorePhotos(false);
+    }
+  };
+
+  const loadMoreVideos = async () => {
+    if (!id || loadingMoreVideosRef.current || !hasMoreVideos) return;
+
+    loadingMoreVideosRef.current = true;
+    setLoadingMoreVideos(true);
+    try {
+      const response = await apiFetch<EventMediaResponse>(
+        `/events/${id}/media?dataType=videos&limit=${MEDIA_PAGE_SIZE}&offset=${videoOffset}`
+      );
+      const rawCount = response.video_count ?? response.videos?.length ?? 0;
+      const loaded = mapUploadedVideos(response.videos ?? []);
+
+      setVideos((current) => {
+        const existing = new Set(current.map((video) => video.id));
+        return [...current, ...loaded.filter((video) => !existing.has(video.id))];
+      });
+      setVideoOffset((current) => current + rawCount);
+      if ((response.video_total ?? 0) > 0) {
+        setVideoTotal(response.video_total as number);
+      }
+      setHasMoreVideos(
+        response.has_more_videos === true ||
+          ((response.video_total ?? 0) === 0 && rawCount === MEDIA_PAGE_SIZE)
+      );
+    } catch (caught) {
+      Alert.alert(
+        "Could Not Load More Videos",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      loadingMoreVideosRef.current = false;
+      setLoadingMoreVideos(false);
+    }
+  };
 
   const dateLabel = useMemo(() => {
     if (!event?.event_date) return "";
@@ -477,8 +709,8 @@ export default function EventDetailScreen() {
       ) : (
         <>
           <Text style={s.counts}>
-            {photos.length} photo{photos.length !== 1 ? "s" : ""}
-            {videos.length > 0 ? ` · ${videos.length} video${videos.length !== 1 ? "s" : ""}` : ""}
+            {photoTotal} photo{photoTotal !== 1 ? "s" : ""}
+            {videoTotal > 0 ? ` · ${videoTotal} video${videoTotal !== 1 ? "s" : ""}` : ""}
             {generatedVideos.length > 0
               ? ` · ${generatedVideos.length} generated`
               : ""}
@@ -503,7 +735,7 @@ export default function EventDetailScreen() {
                   { color: mediaTab === "photos" ? "#fff" : c.textMuted },
                 ]}
               >
-                Photos ({photos.length})
+                Photos ({photoTotal})
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -524,7 +756,7 @@ export default function EventDetailScreen() {
                   { color: mediaTab === "videos" ? "#fff" : c.textMuted },
                 ]}
               >
-                Videos ({videos.length})
+                Videos ({videoTotal})
               </Text>
             </TouchableOpacity>
             {generatedVideos.length > 0 && (
@@ -570,9 +802,23 @@ export default function EventDetailScreen() {
                 numColumns={NUM_COLS}
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={s.grid}
+                onEndReached={() => void loadMorePhotos()}
+                onEndReachedThreshold={0.4}
+                ListFooterComponent={
+                  loadingMorePhotos ? (
+                    <ActivityIndicator
+                      color={c.accent}
+                      style={{ marginVertical: 18 }}
+                    />
+                  ) : null
+                }
                 renderItem={({ item, index }) => (
                   <View
-                    style={{ width: CELL, height: CELL, padding: 1 }}
+                    style={{
+                      width: photoCellSize,
+                      height: photoCellSize,
+                      padding: 1,
+                    }}
                   >
                     <TouchableOpacity
                       activeOpacity={0.85}
@@ -613,6 +859,16 @@ export default function EventDetailScreen() {
                 s.videoList,
                 videos.length === 0 && s.emptyList,
               ]}
+              onEndReached={() => void loadMoreVideos()}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={
+                loadingMoreVideos ? (
+                  <ActivityIndicator
+                    color={c.accent}
+                    style={{ marginVertical: 18 }}
+                  />
+                ) : null
+              }
               ListEmptyComponent={
                 <View style={s.empty}>
                   <Ionicons
@@ -732,6 +988,10 @@ export default function EventDetailScreen() {
         <Lightbox
           photos={photos}
           startIndex={lightboxIndex}
+          totalCount={photoTotal}
+          hasMore={hasMorePhotos}
+          onLoadMore={() => void loadMorePhotos()}
+          onDownload={downloadLightboxPhoto}
           onClose={() => setLightboxIndex(null)}
         />
       )}
@@ -747,14 +1007,16 @@ export default function EventDetailScreen() {
         transparent
         animationType="fade"
         onRequestClose={() =>
-          !updatingPhotoPreference && setPhotoActions(null)
+          !updatingPhotoPreference && !downloadingPhoto && setPhotoActions(null)
         }
       >
         <View style={s.actionBackdrop}>
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() =>
-              !updatingPhotoPreference && setPhotoActions(null)
+              !updatingPhotoPreference &&
+              !downloadingPhoto &&
+              setPhotoActions(null)
             }
           />
           <View style={s.actionSheet}>
@@ -768,7 +1030,7 @@ export default function EventDetailScreen() {
                   </Text>
                 ) : null}
               </View>
-              {updatingPhotoPreference ? (
+              {updatingPhotoPreference || downloadingPhoto ? (
                 <ActivityIndicator color={c.accent} />
               ) : null}
             </View>
@@ -776,7 +1038,7 @@ export default function EventDetailScreen() {
             {selectedPhotoNeedsApproval ? (
               <TouchableOpacity
                 style={s.actionRow}
-                disabled={updatingPhotoPreference}
+                disabled={updatingPhotoPreference || downloadingPhoto}
                 onPress={() => void updateSlideshowPreference("approve")}
               >
                 <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
@@ -797,7 +1059,11 @@ export default function EventDetailScreen() {
 
             <TouchableOpacity
               style={s.actionRow}
-              disabled={updatingPhotoPreference || selectedPhotoIsUserExcluded}
+              disabled={
+                updatingPhotoPreference ||
+                downloadingPhoto ||
+                selectedPhotoIsUserExcluded
+              }
               onPress={() => void updateSlideshowPreference("exclude")}
             >
               <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
@@ -818,7 +1084,26 @@ export default function EventDetailScreen() {
 
             <TouchableOpacity
               style={s.actionRow}
-              disabled={updatingPhotoPreference}
+              disabled={updatingPhotoPreference || downloadingPhoto}
+              onPress={() => void downloadSelectedPhoto()}
+            >
+              <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
+                <Ionicons
+                  name="download-outline"
+                  size={22}
+                  color={c.accent}
+                />
+              </View>
+              <View style={s.actionCopy}>
+                <Text style={s.actionLabel}>
+                  {downloadingPhoto ? "Downloading…" : "Download photo"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.actionRow}
+              disabled={updatingPhotoPreference || downloadingPhoto}
               onPress={() => {
                 const selected = photoActions;
                 setPhotoActions(null);
@@ -835,7 +1120,7 @@ export default function EventDetailScreen() {
 
             <TouchableOpacity
               style={s.actionCancel}
-              disabled={updatingPhotoPreference}
+              disabled={updatingPhotoPreference || downloadingPhoto}
               onPress={() => setPhotoActions(null)}
             >
               <Text style={s.actionCancelText}>Cancel</Text>

@@ -1,5 +1,5 @@
 import FormModal, { FormField } from "@/components/FormModal";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiPublicFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { ThemeColors } from "@/theme/colors";
 import { useTheme } from "@/theme/ThemeContext";
@@ -22,7 +22,13 @@ const ACCOUNT_FIELDS: FormField[] = [
   { key: "first_name", label: "First Name", placeholder: "Your first name" },
   { key: "last_name", label: "Last Name", placeholder: "Your last name" },
   { key: "email", label: "Email", placeholder: "you@email.com", keyboardType: "email-address" },
-  { key: "pwd", label: "Password", placeholder: "Create a password", secure: true },
+  {
+    key: "pwd",
+    label: "Password",
+    placeholder: "Create a password",
+    secure: true,
+    hint: "8–15 characters with uppercase, lowercase, a number, and $ @ # % or !.",
+  },
 ];
 
 const EVENT_FIELDS: FormField[] = [
@@ -55,17 +61,20 @@ export default function WelcomeScreen() {
   const [modal, setModal] = useState<null | "account" | "event">(null);
   const [submitting, setSubmitting] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     const login = username.trim();
     if (!login || !password) {
-      Alert.alert("Missing Info", "Enter your username and password.");
+      setLoginError("Enter your username/email and password.");
       return;
     }
 
+    setLoginError(null);
     setLoggingIn(true);
     try {
-      const { access_token, user } = await apiFetch("/users/login", {
+      const { access_token, user } = await apiPublicFetch("/users/login", {
         ...(login.includes("@") ? { email: login } : { user_name: login }),
         pwd: password,
       });
@@ -73,25 +82,60 @@ export default function WelcomeScreen() {
       setPassword("");
       router.replace("/gallery");
     } catch (error: any) {
-      Alert.alert("Login Failed", error.message ?? "Please try again.");
+      setLoginError(
+        `Unable to log in. ${error.message ?? "Check your login and try again."}`
+      );
     } finally {
       setLoggingIn(false);
     }
   };
 
   const handleCreateAccount = async (values: Record<string, string>) => {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
+    const requiredFields: Array<[string, string]> = [
+      ["user_name", "Username"],
+      ["first_name", "First name"],
+      ["last_name", "Last name"],
+      ["email", "Email"],
+      ["pwd", "Password"],
+    ];
+    const missing = requiredFields.find(([key]) => !values[key]?.trim());
+    if (missing) {
+      setModalError(`${missing[1]} is required.`);
       return;
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+      setModalError("Enter a valid email address containing @ and a domain.");
+      return;
+    }
+
+    const passwordProblems = [
+      values.pwd.length < 8 || values.pwd.length > 15
+        ? "8–15 characters"
+        : null,
+      !/[A-Z]/.test(values.pwd) ? "one uppercase letter" : null,
+      !/[a-z]/.test(values.pwd) ? "one lowercase letter" : null,
+      !/\d/.test(values.pwd) ? "one number" : null,
+      !/[$@#%!]/.test(values.pwd) ? "one of $ @ # % or !" : null,
+    ].filter((item): item is string => Boolean(item));
+    if (passwordProblems.length > 0) {
+      setModalError(`Password requires ${passwordProblems.join(", ")}.`);
+      return;
+    }
+
+    setModalError(null);
     setSubmitting(true);
     try {
-      const user = await apiFetch("/users/create", { ...values, phone: "", role: "user" });
+      const user = await apiPublicFetch("/users/create", {
+        ...values,
+        phone: "",
+        role: "user",
+      });
       setModal(null);
+      setModalError(null);
       Alert.alert("Account Created", `Welcome, ${user.first_name}!`);
     } catch (error: any) {
-      Alert.alert("Sign Up Failed", error.message ?? "Please try again.");
+      setModalError(error.message ?? "Unable to create the account.");
     } finally {
       setSubmitting(false);
     }
@@ -100,6 +144,12 @@ export default function WelcomeScreen() {
   const handleCreateEventPress = () => {
     if (loggedIn) {
       setModal("event");
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      setModalError(null);
+      setModal("account");
       return;
     }
 
@@ -187,7 +237,10 @@ export default function WelcomeScreen() {
                 placeholder="Enter your username"
                 placeholderTextColor={c.textMuted}
                 value={username}
-                onChangeText={setUsername}
+                onChangeText={(value) => {
+                  setUsername(value);
+                  setLoginError(null);
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -204,11 +257,21 @@ export default function WelcomeScreen() {
                 placeholder="Enter your password"
                 placeholderTextColor={c.textMuted}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  setLoginError(null);
+                }}
                 secureTextEntry
               />
             </View>
           </View>
+
+          {loginError ? (
+            <View style={styles.loginErrorBox}>
+              <Text style={styles.loginErrorIcon}>!</Text>
+              <Text style={styles.loginErrorText}>{loginError}</Text>
+            </View>
+          ) : null}
 
           {/* Login Button */}
           <TouchableOpacity
@@ -228,7 +291,10 @@ export default function WelcomeScreen() {
             <TouchableOpacity
               style={styles.linkButton}
               activeOpacity={0.7}
-              onPress={() => setModal("account")}
+              onPress={() => {
+                setModalError(null);
+                setModal("account");
+              }}
             >
               <Text style={styles.linkText}>Create Account</Text>
               <View style={styles.linkUnderline} />
@@ -261,7 +327,12 @@ export default function WelcomeScreen() {
         fields={ACCOUNT_FIELDS}
         submitLabel="SIGN UP"
         submitting={submitting}
-        onClose={() => setModal(null)}
+        error={modal === "account" ? modalError : null}
+        onChange={() => setModalError(null)}
+        onClose={() => {
+          setModalError(null);
+          setModal(null);
+        }}
         onSubmit={handleCreateAccount}
       />
 
@@ -272,7 +343,10 @@ export default function WelcomeScreen() {
         fields={EVENT_FIELDS}
         submitLabel="CREATE EVENT"
         submitting={submitting}
-        onClose={() => setModal(null)}
+        onClose={() => {
+          setModalError(null);
+          setModal(null);
+        }}
         onSubmit={handleCreateEvent}
       />
     </View>
@@ -311,6 +385,9 @@ const makeStyles = (c: ThemeColors) =>
 
     inner: {
       flex: 1,
+      width: "100%",
+      maxWidth: 620,
+      alignSelf: "center",
       justifyContent: "center",
       paddingHorizontal: 28,
       paddingTop: 20,
@@ -389,6 +466,30 @@ const makeStyles = (c: ThemeColors) =>
       color: c.textPrimary,
       fontFamily: Platform.OS === "ios" ? "Helvetica Neue" : "sans-serif",
     },
+    loginErrorBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginTop: -5,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: c.danger,
+      borderRadius: 10,
+      backgroundColor: c.bg,
+    },
+    loginErrorIcon: {
+      width: 20,
+      height: 20,
+      textAlign: "center",
+      color: "#fff",
+      fontSize: 13,
+      fontWeight: "800",
+      borderRadius: 10,
+      backgroundColor: c.danger,
+    },
+    loginErrorText: { flex: 1, color: c.danger, fontSize: 13, lineHeight: 18 },
 
     // Login Button
     loginButton: {

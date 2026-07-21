@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   KeyboardTypeOptions,
   Modal,
@@ -29,6 +28,7 @@ export type FormField = {
   keyboardType?: KeyboardTypeOptions;
   multiline?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  hint?: string;
 };
 
 type FormModalProps = {
@@ -38,9 +38,11 @@ type FormModalProps = {
   fields: FormField[];
   submitLabel: string;
   submitting?: boolean;
+  error?: string | null;
   initialValues?: Record<string, string>;
   onClose: () => void;
   onSubmit: (values: Record<string, string>) => void;
+  onChange?: () => void;
 };
 
 export default function FormModal({
@@ -50,16 +52,20 @@ export default function FormModal({
   fields,
   submitLabel,
   submitting = false,
+  error = null,
   initialValues = EMPTY_INITIAL_VALUES,
   onClose,
   onSubmit,
+  onChange,
 }: FormModalProps) {
   const { colors: c } = useTheme();
   const m = useMemo(() => makeStyles(c), [c]);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     setValues(visible ? initialValues : {});
+    setValidationError(null);
   }, [visible, initialValues]);
 
   const handleSubmit = () => {
@@ -67,7 +73,7 @@ export default function FormModal({
       (f) => f.required !== false && !(values[f.key] ?? "").trim()
     );
     if (missing) {
-      Alert.alert("Missing Field", `Please fill in ${missing.label}.`);
+      setValidationError(`Please fill in ${missing.label}.`);
       return;
     }
 
@@ -75,6 +81,7 @@ export default function FormModal({
     fields.forEach((f) => {
       trimmed[f.key] = (values[f.key] ?? "").trim();
     });
+    setValidationError(null);
     onSubmit(trimmed);
   };
 
@@ -102,12 +109,19 @@ export default function FormModal({
             </TouchableOpacity>
           </View>
 
+          {error || validationError ? (
+            <View style={m.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color={c.danger} />
+              <Text style={m.errorText}>{error || validationError}</Text>
+            </View>
+          ) : null}
+
           <ScrollView
             style={m.scroll}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {fields.map((f) => (
+            {fields.map((f, index) => (
               <View key={f.key} style={m.fieldGroup}>
                 <Text style={m.label}>{f.label.toUpperCase()}</Text>
                 <View
@@ -121,9 +135,11 @@ export default function FormModal({
                     placeholder={f.placeholder}
                     placeholderTextColor={c.textMuted}
                     value={values[f.key] ?? ""}
-                    onChangeText={(t) =>
-                      setValues((prev) => ({ ...prev, [f.key]: t }))
-                    }
+                    onChangeText={(t) => {
+                      setValidationError(null);
+                      onChange?.();
+                      setValues((prev) => ({ ...prev, [f.key]: t }));
+                    }}
                     secureTextEntry={f.secure}
                     keyboardType={f.keyboardType}
                     autoCapitalize={
@@ -134,24 +150,58 @@ export default function FormModal({
                     }
                     autoCorrect={!f.secure && f.keyboardType !== "email-address"}
                     multiline={f.multiline}
+                    returnKeyType={index === fields.length - 1 ? "done" : "next"}
+                    onSubmitEditing={
+                      index === fields.length - 1 ? handleSubmit : undefined
+                    }
                   />
                 </View>
+                {f.hint ? <Text style={m.hint}>{f.hint}</Text> : null}
               </View>
             ))}
           </ScrollView>
 
-          <TouchableOpacity
-            style={[m.submitBtn, submitting && m.submitBtnBusy]}
-            onPress={handleSubmit}
-            activeOpacity={0.85}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={m.submitText}>{submitLabel}</Text>
-            )}
-          </TouchableOpacity>
+          {Platform.OS === "web" ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting}
+              aria-label={submitLabel}
+              style={{
+                backgroundColor: c.accentStrong,
+                border: "none",
+                borderRadius: 12,
+                height: 54,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 6,
+                cursor: submitting ? "default" : "pointer",
+                opacity: submitting ? 0.65 : 1,
+              }}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={m.submitText}>{submitLabel}</Text>
+              )}
+            </button>
+          ) : (
+            <Pressable
+              style={[m.submitBtn, submitting && m.submitBtnBusy]}
+              onPress={handleSubmit}
+              disabled={submitting}
+              accessibilityRole="button"
+              accessibilityLabel={submitLabel}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={m.submitText}>{submitLabel}</Text>
+              )}
+            </Pressable>
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -172,6 +222,9 @@ const makeStyles = (c: ThemeColors) =>
       padding: 24,
       borderWidth: 1,
       borderColor: c.border,
+      width: "100%",
+      maxWidth: 560,
+      alignSelf: "center",
       maxHeight: "85%",
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 12 },
@@ -196,6 +249,19 @@ const makeStyles = (c: ThemeColors) =>
       color: c.textMuted,
       marginTop: 4,
     },
+    errorBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 14,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.danger,
+      backgroundColor: c.bg,
+    },
+    errorText: { flex: 1, color: c.danger, fontSize: 13, lineHeight: 18 },
     closeBtn: {
       width: 36,
       height: 36,
@@ -245,6 +311,7 @@ const makeStyles = (c: ThemeColors) =>
       textAlignVertical: "top",
       paddingTop: 12,
     },
+    hint: { color: c.textMuted, fontSize: 11, lineHeight: 16, marginTop: 5 },
     submitBtn: {
       backgroundColor: c.accentStrong,
       borderRadius: 12,

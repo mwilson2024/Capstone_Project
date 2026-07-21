@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 import fastapi
 import jwt
 import uvicorn
-from fastapi import Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
@@ -282,6 +282,7 @@ def normalizeMediaRecord(item: dict, mediaType: str) -> dict:
             "filter_status": item.get("filter_status"),
             "filter_reason": item.get("filter_reason"),
             "user_approved": item.get("user_approved", False),
+            "image_hash": item.get("image_hash"),
         })
     else:
         normalized.update({
@@ -388,7 +389,7 @@ def healthCheck():
     try:
         if db.connect():
             health['database'] = up
-        statusCnt +=1
+            statusCnt +=1
     except Exception as e:
         logger.exception(f'Database is down: {e}')
 
@@ -443,24 +444,6 @@ def createGuestSession(req: dc.guestSessionRequest, request: Request):
         "message": "Guest session created successfully.",
         "guest": guest,
     }
-
-@app.get('users/me')
-def getCurrentUser(current_user_id: int = Depends(getCurrentUserID)):
-    try:
-        user = db.getUserInfo(current_user_id)
-
-        if not user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User not found.")
-
-        return user
-
-    except HTTPException:
-        raise
-
-    except Exception:
-        logger.exception(f"Could not load current user. user_id={current_user_id}",current_user_id)
-
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="User profile could not be loaded.") from None
     
 @app.get('/users/me', response_model=dc.userResponse)
 def getCurrentUser(current_user_id: int = Depends(getCurrentUserID)):
@@ -628,30 +611,32 @@ async def analyzePrompt(request: dc.PromptRequest, current_user_id: int = Depend
         logger.exception("Prompt analysis failed.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="Prompt analysis failed.") from e
     
-@app.post('/media/allmedia')
-async def getMedia(req: dc.mediaModel, current_user_id: int = Depends(getCurrentUserID)):
-    try:
-        verifyEventOwner(req.eventID, current_user_id)
-        media = db.getAllMedia(eventID=req.eventID,dataType=req.dataType)
+@app.get("/events/{eventID}/jobs/{jobID}")
+def getEventJobStatus(eventID: int,jobID: int,current_user_id: int = Depends(getCurrentUserID)):
+    verifyEventOwner(eventID, current_user_id)
 
-        return {
-            "status": "success",
-            "eventID": req.eventID,
-            "dataType": req.dataType,
-            "photos_count": len(media["photos"]),
-            "videos_count": len(media["videos"]),
-            "data": media
-        }
+    job = db.getJobQueueByID(jobID)
 
-    except HTTPException:
-        raise
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Processing job not found.")
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    prompt_id = job.get("prompt_id")
 
-    except Exception as e:
-        logger.exception(f"Error getting media: {e}")
-        raise HTTPException(status_code=500,detail="Error getting media")
+    if prompt_id:
+        prompt = db.getPromptRequestByID(prompt_id)
+
+        if not prompt or prompt.get("event_id") != eventID:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Processing job not found for this event.")
+
+    return {
+        "job_id": job["job_id"],
+        "event_id": eventID,
+        "job_type": job.get("job_type"),
+        "status": job.get("status"),
+        "error_message": job.get("error_message"),
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+    }
 
 @app.post("/users/create", response_model=dc.userResponse)
 async def create_user(user: dc.userCreate):
@@ -757,21 +742,27 @@ def getEvent(eventID: int, current_user_id: int = Depends(getCurrentUserID)):
     }
 
 @app.get("/events/{eventID}/media")
-def getEventMedia(eventID: int, dataType: str = "both", current_user_id: int = Depends(getCurrentUserID)):
+def getEventMedia(eventID: int, dataType: str = "both", limit: int = Query(default=30, ge=1, le=100), offset: int = Query(default=0, ge=0), current_user_id: int = Depends(getCurrentUserID)):
     verifyEventOwner(eventID, current_user_id)
 
     try:
-        media = db.getAllMedia(eventID=eventID, dataType=dataType)
+        media = db.getAllMedia(eventID=eventID, dataType=dataType, limit=limit,offset=offset)
         photos = [normalizeMediaRecord(item, "photo") for item in media["photos"]]
         videos = [normalizeMediaRecord(item, "video") for item in media["videos"]]
 
         return {
             "event_id": eventID,
-            "data_type": dataType.lower().strip(),
+            "data_type": dataType,
+            "limit": limit,
+            "offset": offset,
             "photo_count": len(photos),
             "video_count": len(videos),
+            "photo_total": media["photo_total"],
+            "video_total": media["video_total"],
             "photos": photos,
             "videos": videos,
+            "has_more_photos": offset + len(photos) < media["photo_total"],
+            "has_more_videos": offset + len(videos) < media["video_total"],
         }
 
     except ValueError as e:
@@ -786,60 +777,6 @@ def getEventMedia(eventID: int, dataType: str = "both", current_user_id: int = D
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Event media could not be loaded.",
         ) from e
-
-@app.delete("/events/{eventID}/photos/{photoID}")
-def hideEventPhoto(
-    eventID: int,
-    photoID: int,
-    current_user_id: int = Depends(getCurrentUserID),
-):
-    verifyEventOwner(eventID, current_user_id)
-
-    hidden = db.hidePhoto(eventID=eventID, photoID=photoID)
-
-    if not hidden:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Photo was not found or is already hidden.",
-        )
-
-    return {
-        "message": "Photo removed from the gallery.",
-        "event_id": eventID,
-        "photo_id": photoID,
-        "hidden": True,
-    }
-
-@app.patch("/events/{eventID}/photos/{photoID}/slideshow")
-def updatePhotoSlideshowPreference(
-    eventID: int,
-    photoID: int,
-    preference: dc.photoSlideshowAction,
-    current_user_id: int = Depends(getCurrentUserID),
-):
-    verifyEventOwner(eventID, current_user_id)
-
-    updated = db.updatePhotoSlideshowPreference(
-        eventID=eventID,
-        photoID=photoID,
-        action=preference.action,
-    )
-
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Photo or photo filter record could not be updated.",
-        )
-
-    return {
-        "message": (
-            "Photo approved for the slideshow."
-            if preference.action == "approve"
-            else "Photo excluded from the slideshow."
-        ),
-        "event_id": eventID,
-        "photo": updated,
-    }
 
 @app.patch("/events/modify/{eventID}")
 def modifyEvent(eventID: int, event: dc.eventModify, current_user_id: int = Depends(getCurrentUserID)):
@@ -950,7 +887,13 @@ async  def createStoryBoard(req: dc.StoryboardCreateRequest , current_user_id: i
             "storyboard_id": storyboardID
         }
 
-        enqueueJob(dataSet)
+        job = enqueueJob(dataSet)
+
+        if not job:
+            raise HTTPException(
+                status_code=500,
+                detail="Storyboard was created, but video processing was not queued.",
+            )
 
         return {
             "message": "Storyboard created successfully.",
@@ -958,10 +901,12 @@ async  def createStoryBoard(req: dc.StoryboardCreateRequest , current_user_id: i
             "event_id": storyboard.get("event_id"),
             "request_id": storyboard.get("request_id"),
             "status": storyboard.get("status"),
+            "job_id": job["job_id"],
+            "job_status": job["status"],
             "item_count": len(items),
             "storyboard": storyboard,
-            "items": items
-    }
+            "items": items,
+        }
 
 
     except HTTPException:
@@ -1031,5 +976,44 @@ def getGeneratedVideoPlaybackUrl(generatedVideoID: int,current_user_id: int = De
         "stream_url": signed["url"],
         "expires_at": signed["expires_at"],
     }
+
+@app.delete("/events/{eventID}/photos/{photoID}")
+def hideEventPhoto(eventID: int,photoID: int,current_user_id: int = Depends(getCurrentUserID)):
+    verifyEventOwner(eventID, current_user_id)
+
+    hidden = db.hidePhoto(
+        eventID=eventID,
+        photoID=photoID,
+    )
+
+    if not hidden:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Photo was not found or is already hidden.")
+
+    return {
+        "message": "Photo removed from the gallery.",
+        "event_id": eventID,
+        "photo_id": photoID,
+        "hidden": True,
+    }
+
+@app.patch("/events/{eventID}/photos/{photoID}/slideshow")
+def updatePhotoSlideshowPreference(eventID: int,photoID: int,preference: dc.photoSlideshowAction,current_user_id: int = Depends(getCurrentUserID)):
+    verifyEventOwner(eventID, current_user_id)
+
+    updated = db.updatePhotoSlideshowPreference(eventID=eventID,photoID=photoID,action=preference.action)
+
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo or photo filter record could not be updated.")
+
+    return {
+        "message": (
+            "Photo approved for the slideshow."
+            if preference.action == "approve"
+            else "Photo excluded from the slideshow."
+        ),
+        "event_id": eventID,
+        "photo": updated,
+    }
+
 if __name__ == "__main__":
     uvicorn.run("api.mainAPI:app", host="127.0.0.1", port=8000, reload=True)

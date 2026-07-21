@@ -17,8 +17,8 @@ export const onUnauthorized = (handler: () => void) => {
 const authHeaders = (): Record<string, string> =>
   hasToken() ? { Authorization: `Bearer ${token}` } : {};
 
-async function parse<T>(res: Response): Promise<T> {
-  if (res.status === 401 && hasToken()) {
+async function parse<T>(res: Response, handleUnauthorized = true): Promise<T> {
+  if (handleUnauthorized && res.status === 401 && hasToken()) {
     setToken("");
     unauthorizedHandler?.();
     throw new Error("Your session has expired. Please log in again.");
@@ -26,7 +26,23 @@ async function parse<T>(res: Response): Promise<T> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(typeof err.detail === "string" ? err.detail : "Request failed.");
+    const detail = err.detail;
+    let message = "Request failed.";
+
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item && typeof item.msg === "string") return item.msg;
+          return null;
+        })
+        .filter((item): item is string => Boolean(item));
+      if (messages.length > 0) message = messages.join(" ");
+    }
+
+    throw new Error(message);
   }
   return res.json();
 }
@@ -44,6 +60,21 @@ export async function apiFetch<T = any>(
     signal,
   });
   return parse<T>(res);
+}
+
+export async function apiPublicFetch<T = any>(
+  path: string,
+  body?: unknown,
+  method: string = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal
+): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  return parse<T>(res, false);
 }
 
 export async function apiUpload<T = any>(path: string, form: FormData): Promise<T> {

@@ -788,19 +788,29 @@ class SQLbuilder:
 
         return query
 
-    def getAllMedia(self, eventID: int, dataType: str = "both"):
+    def getAllMedia(self, eventID: int, dataType: str = "both", limit: int = 30, offset: int = 0):
         dataType = dataType.lower().strip()
 
         if dataType not in ["both", "videos", "photos"]:
             raise ValueError("dataType must be 'both', 'videos', or 'photos'.")
 
-        result = {"photos": [], "videos": []}
+
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100.")
+
+        if offset < 0:
+            raise ValueError("offset cannot be negative.")
+        
+        rangeEnd = offset + limit - 1
+
+        result = {"photos": [], "videos": [], "photo_total": 0, "video_total": 0}
 
         if dataType in ["both", "photos"]:
             photos = (
                 self.client
                 .table("photos")
-                .select("""
+                .select(
+                    """
                     photo_id,
                     event_id,
                     created_at,
@@ -820,17 +830,32 @@ class SQLbuilder:
                         upload_status,
                         processing_status,
                         created_at,
-                        guests(guest_id, display_name, email, phone_number),
-                        app_user(user_id, user_name, first_name, last_name, email)
+                        guests(
+                            guest_id,
+                            display_name,
+                            email,
+                            phone_number
+                        ),
+                        app_user(
+                            user_id,
+                            user_name,
+                            first_name,
+                            last_name,
+                            email
+                        )
                     )
-                """)
+                    """,
+                    count="exact",
+                )
                 .eq("event_id", eventID)
                 .eq("hide_photo", False)
                 .eq("uploads.media_type", "photo")
                 .order("created_at", desc=True)
+                .range(offset, rangeEnd)
                 .execute()
             )
             photoRows = photos.data or []
+            result["photo_total"] = int(photos.count or 0)
             photoIDs = [row["photo_id"] for row in photoRows]
 
             rankingByID = {}
@@ -839,7 +864,7 @@ class SQLbuilder:
                 filters = (
                     self.client
                     .table("photo_filter")
-                    .select("photo_id,status,reason,user_approved")
+                    .select("photo_id,status,reason,user_approved,image_hash")
                     .in_("photo_id", photoIDs)
                     .execute()
                 )
@@ -858,7 +883,6 @@ class SQLbuilder:
                     row["photo_id"]: row
                     for row in rankings.data or []
                 }
-
             for photo in photoRows:
                 ranking = rankingByID.get(photo["photo_id"], {})
                 photoFilter = filterByID.get(photo["photo_id"], {})
@@ -866,14 +890,16 @@ class SQLbuilder:
                 photo["filter_status"] = photoFilter.get("status")
                 photo["filter_reason"] = photoFilter.get("reason")
                 photo["user_approved"] = photoFilter.get("user_approved", False)
+                photo["image_hash"] = photoFilter.get("image_hash")
 
             result["photos"] = photoRows
-
+            
         if dataType in ["both", "videos"]:
             videos = (
                 self.client
                 .table("videos")
-                .select("""
+                .select(
+                    """
                     video_id,
                     event_id,
                     title,
@@ -899,138 +925,34 @@ class SQLbuilder:
                         upload_status,
                         processing_status,
                         created_at,
-                        guests(guest_id, display_name, email, phone_number),
-                        app_user(user_id, user_name, first_name, last_name, email)
+                        guests(
+                            guest_id,
+                            display_name,
+                            email,
+                            phone_number
+                        ),
+                        app_user(
+                            user_id,
+                            user_name,
+                            first_name,
+                            last_name,
+                            email
+                        )
                     )
-                """)
+                    """,
+                    count="exact",
+                )
                 .eq("event_id", eventID)
                 .eq("hide_video", False)
                 .eq("uploads.media_type", "video")
                 .order("created_at", desc=True)
+                .range(offset, rangeEnd)
                 .execute()
             )
-            result["videos"] = videos.data
+            result["videos"] = videos.data or []
+            result["video_total"] = int(videos.count or 0)
 
         return result
-
-    def updatePhotoSlideshowPreference(self, eventID: int, photoID: int, action: str):
-        if not eventID or not photoID or action not in {"approve", "exclude"}:
-            return None
-
-        try:
-            photoResult = (
-                self.client
-                .table("photos")
-                .select("photo_id")
-                .eq("photo_id", photoID)
-                .eq("event_id", eventID)
-                .limit(1)
-                .execute()
-            )
-            if not photoResult.data:
-                return None
-
-            filterResult = (
-                self.client
-                .table("photo_filter")
-                .select("*")
-                .eq("photo_id", photoID)
-                .limit(1)
-                .execute()
-            )
-            current = filterResult.data[0] if filterResult.data else None
-            reasons = [
-                reason.strip()
-                for reason in str((current or {}).get("reason") or "").split(",")
-                if reason.strip() and reason.strip() != "N/A"
-            ]
-
-            if action == "approve":
-                reasons = [reason for reason in reasons if reason != "user_excluded"]
-                values = {
-                    "status": (current or {}).get("status") or "approved",
-                    "reason": ",".join(reasons) or "user_approved",
-                    "user_approved": True,
-                }
-            else:
-                if "user_excluded" not in reasons:
-                    reasons.append("user_excluded")
-                values = {
-                    "status": "rejected",
-                    "reason": ",".join(reasons),
-                    "user_approved": False,
-                }
-
-            if current:
-                result = (
-                    self.client
-                    .table("photo_filter")
-                    .update(values)
-                    .eq("photo_id", photoID)
-                    .execute()
-                )
-            else:
-                result = (
-                    self.client
-                    .table("photo_filter")
-                    .insert({
-                        "photo_id": photoID,
-                        "blur_score": 0,
-                        "bright_score": 0,
-                        "contrast_score": 0,
-                        "width": 0,
-                        "height": 0,
-                        **values,
-                    })
-                    .execute()
-                )
-
-            if not result.data:
-                return None
-
-            updated = result.data[0]
-            return {
-                "photo_id": photoID,
-                "filter_status": updated.get("status"),
-                "filter_reason": updated.get("reason"),
-                "user_approved": updated.get("user_approved", False),
-            }
-
-        except Exception:
-            self.log.exception(
-                "Could not update slideshow preference for photo_id=%s event_id=%s",
-                photoID,
-                eventID,
-            )
-            return None
-
-    def hidePhoto(self, eventID: int, photoID: int):
-        if not eventID or not photoID:
-            return None
-
-        try:
-            result = (
-                self.client
-                .table("photos")
-                .update({
-                    "hide_photo": True,
-                    "last_edit": datetime.now(timezone.utc).isoformat(),
-                })
-                .eq("photo_id", photoID)
-                .eq("event_id", eventID)
-                .eq("hide_photo", False)
-                .execute()
-            )
-
-            return result.data[0] if result.data else None
-
-        except Exception:
-            self.log.exception(
-                "Could not hide photo_id=%s for event_id=%s",
-                photoID,
-                eventID,
-            )
-            return None
 
     def insertUser(self, user_data: dict):
         try:
@@ -2353,5 +2275,126 @@ class SQLbuilder:
         except Exception as e:
             self.log.exception(
                 f"Error loading active QR code for event_id={eventID}: {e}"
+            )
+            return None
+
+    def updatePhotoSlideshowPreference(self, eventID: int, photoID: int, action: str):
+        if not eventID or not photoID or action not in {"approve", "exclude"}:
+            return None
+
+        try:
+            photoResult = (
+                self.client
+                .table("photos")
+                .select("photo_id")
+                .eq("photo_id", photoID)
+                .eq("event_id", eventID)
+                .limit(1)
+                .execute()
+            )
+            if not photoResult.data:
+                return None
+
+            filterResult = (
+                self.client
+                .table("photo_filter")
+                .select("*")
+                .eq("photo_id", photoID)
+                .limit(1)
+                .execute()
+            )
+            current = filterResult.data[0] if filterResult.data else None
+            reasons = [
+                reason.strip()
+                for reason in str((current or {}).get("reason") or "").split(",")
+                if reason.strip() and reason.strip() != "N/A"
+            ]
+
+            if action == "approve":
+                reasons = [reason for reason in reasons if reason != "user_excluded"]
+                values = {
+                    "status": (current or {}).get("status") or "approved",
+                    "reason": ",".join(reasons) or "user_approved",
+                    "user_approved": True,
+                }
+            else:
+                if "user_excluded" not in reasons:
+                    reasons.append("user_excluded")
+                values = {
+                    "status": "rejected",
+                    "reason": ",".join(reasons),
+                    "user_approved": False,
+                }
+
+            if current:
+                result = (
+                    self.client
+                    .table("photo_filter")
+                    .update(values)
+                    .eq("photo_id", photoID)
+                    .execute()
+                )
+            else:
+                result = (
+                    self.client
+                    .table("photo_filter")
+                    .insert({
+                        "photo_id": photoID,
+                        "blur_score": 0,
+                        "bright_score": 0,
+                        "contrast_score": 0,
+                        "width": 0,
+                        "height": 0,
+                        **values,
+                    })
+                    .execute()
+                )
+
+            if not result.data:
+                return None
+
+            updated = result.data[0]
+            return {
+                "photo_id": photoID,
+                "filter_status": updated.get("status"),
+                "filter_reason": updated.get("reason"),
+                "user_approved": updated.get("user_approved", False),
+            }
+
+        except Exception:
+            self.log.exception(
+                "Could not update slideshow preference for photo_id=%s event_id=%s",
+                photoID,
+                eventID,
+            )
+            return None
+
+    def hidePhoto(self, eventID: int, photoID: int):
+        if not eventID or not photoID:
+            return None
+
+        try:
+            result = (
+                self.client
+                .table("photos")
+                .update({
+                    "hide_photo": True,
+                    "last_edit": (
+                        datetime.now(timezone.utc).isoformat()
+                    ),
+                })
+                .eq("photo_id", photoID)
+                .eq("event_id", eventID)
+                .eq("hide_photo", False)
+                .execute()
+            )
+
+            return result.data[0] if result.data else None
+
+        except Exception:
+            self.log.exception(
+                "Could not hide photo_id=%s for event_id=%s",
+                photoID,
+                eventID,
             )
             return None

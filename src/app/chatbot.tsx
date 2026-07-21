@@ -46,6 +46,25 @@ type Message = {
   eventId?: number;
   requestId?: number | null;
   liked?: boolean;
+  jobId?: number;
+  jobStatus?: "queued" | "processing" | "completed" | "failed";
+};
+
+type CreateVideoResponse = {
+  storyboard_id: number;
+  status: string;
+  job_id: number;
+  job_status: string;
+};
+
+type VideoJobResponse = {
+  job_id: number;
+  event_id: number;
+  job_type: string | null;
+  status: string;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 const INTRO: Message = {
@@ -59,6 +78,7 @@ export default function ChatbotScreen() {
   const { colors: c } = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
   const scrollRef = useRef<ScrollView>(null);
+  const mountedRef = useRef(true);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -68,6 +88,12 @@ export default function ChatbotScreen() {
   const [sending, setSending] = useState(false);
   const [creatingForMessage, setCreatingForMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,6 +126,85 @@ export default function ChatbotScreen() {
   }, [params.eventId]);
 
   const selectedEvent = events.find((event) => event.event_id === selectedEventId);
+
+  const updateJobMessage = (
+    messageId: string,
+    changes: Partial<Message>
+  ) => {
+    if (!mountedRef.current) return;
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId ? { ...message, ...changes } : message
+      )
+    );
+  };
+
+  const monitorVideoJob = async (
+    messageId: string,
+    eventId: number,
+    jobId: number
+  ) => {
+    let consecutiveErrors = 0;
+
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (!mountedRef.current) return;
+
+      try {
+        const job = await apiFetch<VideoJobResponse>(
+          `/events/${eventId}/jobs/${jobId}`
+        );
+        consecutiveErrors = 0;
+        const status = job.status.toLowerCase();
+
+        if (["completed", "complete", "success"].includes(status)) {
+          updateJobMessage(messageId, {
+            text: "Your generated video is ready. Open the event’s Generated tab to watch or download it.",
+            jobStatus: "completed",
+          });
+          return;
+        }
+
+        if (["failed", "error"].includes(status)) {
+          updateJobMessage(messageId, {
+            text: job.error_message
+              ? `Video creation failed: ${job.error_message}`
+              : "Video creation failed. Please try again.",
+            jobStatus: "failed",
+          });
+          return;
+        }
+
+        updateJobMessage(messageId, {
+          text:
+            status === "processing" || status === "running"
+              ? "Your video is being created. This can take several minutes."
+              : "Your video is queued and waiting to start.",
+          jobStatus:
+            status === "processing" || status === "running"
+              ? "processing"
+              : "queued",
+        });
+      } catch (caught) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          updateJobMessage(messageId, {
+            text:
+              caught instanceof Error
+                ? `Could not check video progress: ${caught.message}`
+                : "Could not check video progress. Please refresh later.",
+            jobStatus: "failed",
+          });
+          return;
+        }
+      }
+    }
+
+    updateJobMessage(messageId, {
+      text: "Video processing is taking longer than expected. Check the event’s Generated tab later.",
+      jobStatus: "processing",
+    });
+  };
 
   const send = async () => {
     const prompt = input.trim();
@@ -156,10 +261,7 @@ export default function ChatbotScreen() {
     if (!message.eventId || !message.requestId || creatingForMessage) return;
     setCreatingForMessage(message.id);
     try {
-      const result = await apiFetch<{
-        storyboard_id: number;
-        status: string;
-      }>(
+      const result = await apiFetch<CreateVideoResponse>(
         "/creation/storyboard",
         {
           event_id: message.eventId,
@@ -167,14 +269,30 @@ export default function ChatbotScreen() {
         },
         "POST"
       );
+      if (!Number.isInteger(result.job_id) || result.job_id <= 0) {
+        throw new Error(
+          "The API did not return a processing job ID. Deploy the updated backend before creating videos."
+        );
+      }
+      const progressMessageId = `${Date.now()}-creation`;
       setMessages((current) => [
-        ...current,
+        ...current.map((item) =>
+          item.id === message.id ? { ...item, canCreateVideo: false } : item
+        ),
         {
-          id: `${Date.now()}-creation`,
+          id: progressMessageId,
           role: "assistant",
-          text: `Video creation started from storyboard ${result.storyboard_id}. You can watch it in the Generated tab when processing finishes.`,
+          text: "Your video is queued and waiting to start.",
+          eventId: message.eventId,
+          jobId: result.job_id,
+          jobStatus: "queued",
         },
       ]);
+      void monitorVideoJob(
+        progressMessageId,
+        message.eventId,
+        result.job_id
+      );
     } catch (caught) {
       Alert.alert(
         "Could not create video",
@@ -255,6 +373,37 @@ export default function ChatbotScreen() {
                   <Text style={[styles.bubbleText, message.role === "user" && styles.userBubbleText]}>
                     {message.text}
                   </Text>
+                  {message.jobStatus ? (
+                    <View style={styles.jobStatusRow}>
+                      {message.jobStatus === "queued" ||
+                      message.jobStatus === "processing" ? (
+                        <ActivityIndicator size="small" color="#8B5CF6" />
+                      ) : (
+                        <Ionicons
+                          name={
+                            message.jobStatus === "completed"
+                              ? "checkmark-circle"
+                              : "alert-circle"
+                          }
+                          size={18}
+                          color={
+                            message.jobStatus === "completed"
+                              ? "#10B981"
+                              : c.danger
+                          }
+                        />
+                      )}
+                      <Text style={styles.jobStatusText}>
+                        {message.jobStatus === "queued"
+                          ? "QUEUED"
+                          : message.jobStatus === "processing"
+                            ? "PROCESSING"
+                            : message.jobStatus === "completed"
+                              ? "COMPLETED"
+                              : "FAILED"}
+                      </Text>
+                    </View>
+                  ) : null}
                   {message.canCreateVideo ? (
                     message.liked ? (
                       <TouchableOpacity
@@ -388,6 +537,18 @@ const makeStyles = (c: ThemeColors) => {
     userBubble: { alignSelf: "flex-end", backgroundColor: userBackground, borderBottomRightRadius: 5 },
     bubbleText: { color: c.textPrimary, fontSize: 14, lineHeight: 20 },
     userBubbleText: { color: "#fff" },
+    jobStatusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      marginTop: 10,
+    },
+    jobStatusText: {
+      color: c.textMuted,
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1.1,
+    },
     typingBubble: { flexDirection: "row", alignItems: "center", gap: 9 },
     typingText: { color: c.textMuted, fontSize: 13 },
     createVideoButton: { minHeight: 42, marginTop: 12, borderRadius: 11, backgroundColor: "#7C3AED", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 13 },

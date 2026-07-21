@@ -45,8 +45,8 @@ class chatBotOpenAI:
         "allowed": true,
         "out_of_scope": false,
         "unsafe_or_invalid": false,
-        "reason": "brief reason for the classification"
-        "response": "response to present the user
+        "reason": "brief reason for the classification",
+        "response": "response to present the user",
         }}
 
         User request:

@@ -5,6 +5,8 @@ from logging.handlers import RotatingFileHandler
 import tempfile
 from pathlib import Path
 from azure.core.exceptions import ResourceNotFoundError
+from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
 from shared.ProjectHelper import Helpers as ph
 from shared.AzureClass import blobHandler
 from worker.ContentScorer import ContentScoring
@@ -14,6 +16,8 @@ from worker.PreFilter import ImgQualFilt
 from worker.SlideShow import SlideShowGenerator
 from api.StoryBoard import StoryBoardGen
 from worker.VideoExtraction import ExtractVidFrames
+
+register_heif_opener(thumbnails=False)
 
 LOG_DIR = os.environ.get("LOG_DIR", "logs")
 LOG_FILE = os.environ.get("LOG_FILE", "worker.log")
@@ -55,6 +59,52 @@ class newRunner:
         self.ve = ExtractVidFrames(db= self.db, log= self.log)
         self.ss = SlideShowGenerator(db=self.db, log= self.log, azure= self.blob)
         self.sb = StoryBoardGen(db=self.db, log=self.log)
+
+    def convertHeifMedia(self, mediaSet: list[dict]) -> list[dict]:
+        for media in mediaSet:
+            filePath = media.get("file_path")
+
+            if not filePath:
+                continue
+
+            sourcePath = Path(filePath)
+
+            if sourcePath.suffix.lower() not in {".heif", ".heic"}:
+                continue
+
+            convertedPath = sourcePath.with_suffix(".jpg")
+
+            try:
+                with Image.open(sourcePath) as sourceImage:
+                    iccProfile = sourceImage.info.get("icc_profile")
+
+                    with ImageOps.exif_transpose(sourceImage) as orientedImage:
+                        exif = orientedImage.getexif()
+                        exifBytes = exif.tobytes() if exif else None
+
+                        with orientedImage.convert("RGB") as rgbImage:
+                            saveOptions = {
+                                "format": "JPEG",
+                                "quality": 95,
+                                "subsampling": 0,
+                            }
+
+                            if exifBytes:
+                                saveOptions["exif"] = exifBytes
+
+                            if iccProfile:
+                                saveOptions["icc_profile"] = iccProfile
+
+                            rgbImage.save(convertedPath, **saveOptions)
+
+                media["file_path"] = str(convertedPath)
+                self.log.info(f"Converted HEIF image {sourcePath.name} to {convertedPath.name}")
+
+            except Exception as error:
+                self.log.exception("Could not convert HEIF image %s", sourcePath)
+                raise ValueError(f"Unable to convert HEIF image: {sourcePath.name}") from error
+
+        return mediaSet
 
     def deleteQueueMessage(self, msg) -> bool:
         try:
@@ -202,6 +252,9 @@ class newRunner:
 
                 if not mediaSet:
                     raise ValueError(f"No {dt} files downloaded for preprocess.")
+
+                if dt == 'photos':
+                    mediaSet = self.convertHeifMedia(mediaSet)
 
                 if dt == 'videos':
                     videoFlag = 'videos'

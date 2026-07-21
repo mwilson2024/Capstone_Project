@@ -143,16 +143,26 @@ export default function SettingsScreen() {
     }
   };
 
+  const finishLogOut = async () => {
+    await signOut();
+    router.replace("/");
+  };
+
   const logOut = () => {
+    if (Platform.OS === "web") {
+      const confirmed = (globalThis as any).confirm?.(
+        "Are you sure you want to log out?"
+      );
+      if (confirmed) void finishLogOut();
+      return;
+    }
+
     Alert.alert("Log out", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Log out",
         style: "destructive",
-        onPress: async () => {
-          await signOut();
-          router.replace("/");
-        },
+        onPress: () => void finishLogOut(),
       },
     ]);
   };
