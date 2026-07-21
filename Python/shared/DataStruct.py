@@ -175,6 +175,9 @@ class uploadModel(BaseModel):
             raise ValueError("Either userID or guestID is required")
         return self
 
+class photoSlideshowAction(BaseModel):
+    action: Literal["approve", "exclude"]
+
 class PromptRequest(BaseModel):
     eventID: int = Field(..., gt=0)
     userID: int = Field(..., gt=0)

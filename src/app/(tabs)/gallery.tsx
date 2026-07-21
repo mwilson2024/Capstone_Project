@@ -21,7 +21,7 @@ import { useTheme } from "@/theme/ThemeContext";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
-type Photo = { id: string; uri: string };
+type Photo = { id: string; uri: string; isSensitive: boolean };
 type Gallery = {
   id: string;
   title: string;
@@ -46,6 +46,7 @@ type EventsResponse = {
 type MediaRecord = {
   id: number;
   display_url: string | null;
+  nudity_check?: boolean | string | null;
 };
 
 type EventMediaResponse = {
@@ -59,6 +60,14 @@ const GALLERY_COLORS = [
   { cover: "#164E63", accent: "#06B6D4" },
   { cover: "#78350F", accent: "#F59E0B" },
 ];
+
+function isSensitivePhoto(photo: MediaRecord) {
+  return (
+    photo.nudity_check === true ||
+    (typeof photo.nudity_check === "string" &&
+      ["1", "true", "yes"].includes(photo.nudity_check.toLowerCase()))
+  );
+}
 
 function formatEventDate(value: string) {
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
@@ -86,6 +95,7 @@ async function loadGallery(event: EventRecord, index: number): Promise<Gallery> 
     .map((photo) => ({
       id: String(photo.id),
       uri: photo.display_url,
+      isSensitive: isSensitivePhoto(photo),
     }));
 
   return {
@@ -122,12 +132,19 @@ function GalleryCard({
             source={{ uri: gallery.photos[0].uri }}
             style={gc.coverImage}
             resizeMode="cover"
+            blurRadius={gallery.photos[0].isSensitive ? 32 : 0}
           />
         ) : (
           <View style={gc.emptyCover}>
             <Ionicons name="videocam" size={34} color="#fff" />
           </View>
         )}
+        {gallery.photos[0]?.isSensitive ? (
+          <View style={gc.sensitiveBadge} pointerEvents="none">
+            <Ionicons name="eye-off" size={13} color="#fff" />
+            <Text style={gc.sensitiveText}>Blurred</Text>
+          </View>
+        ) : null}
         <View style={gc.badges}>
           <View style={[gc.badge, { backgroundColor: gallery.accentColor }]}>
             <Ionicons name="images" size={10} color="#fff" />
@@ -163,6 +180,19 @@ const makeCardStyles = (c: ThemeColors) =>
     },
     cover: { height: CARD_WIDTH * 0.75, width: "100%", overflow: "hidden" },
     coverImage: { width: "100%", height: "100%", opacity: 0.85 },
+    sensitiveBadge: {
+      position: "absolute",
+      left: 8,
+      bottom: 10,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      backgroundColor: "rgba(5,8,16,0.78)",
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: 14,
+    },
+    sensitiveText: { color: "#fff", fontSize: 10, fontWeight: "700" },
     emptyCover: {
       width: "100%",
       height: "100%",

@@ -278,6 +278,10 @@ def normalizeMediaRecord(item: dict, mediaType: str) -> dict:
         normalized.update({
             "taken_at": item.get("photo_taken"),
             "last_updated": item.get("last_edit"),
+            "nudity_check": item.get("nudity_check", False),
+            "filter_status": item.get("filter_status"),
+            "filter_reason": item.get("filter_reason"),
+            "user_approved": item.get("user_approved", False),
         })
     else:
         normalized.update({
@@ -782,6 +786,60 @@ def getEventMedia(eventID: int, dataType: str = "both", current_user_id: int = D
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Event media could not be loaded.",
         ) from e
+
+@app.delete("/events/{eventID}/photos/{photoID}")
+def hideEventPhoto(
+    eventID: int,
+    photoID: int,
+    current_user_id: int = Depends(getCurrentUserID),
+):
+    verifyEventOwner(eventID, current_user_id)
+
+    hidden = db.hidePhoto(eventID=eventID, photoID=photoID)
+
+    if not hidden:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo was not found or is already hidden.",
+        )
+
+    return {
+        "message": "Photo removed from the gallery.",
+        "event_id": eventID,
+        "photo_id": photoID,
+        "hidden": True,
+    }
+
+@app.patch("/events/{eventID}/photos/{photoID}/slideshow")
+def updatePhotoSlideshowPreference(
+    eventID: int,
+    photoID: int,
+    preference: dc.photoSlideshowAction,
+    current_user_id: int = Depends(getCurrentUserID),
+):
+    verifyEventOwner(eventID, current_user_id)
+
+    updated = db.updatePhotoSlideshowPreference(
+        eventID=eventID,
+        photoID=photoID,
+        action=preference.action,
+    )
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo or photo filter record could not be updated.",
+        )
+
+    return {
+        "message": (
+            "Photo approved for the slideshow."
+            if preference.action == "approve"
+            else "Photo excluded from the slideshow."
+        ),
+        "event_id": eventID,
+        "photo": updated,
+    }
 
 @app.patch("/events/modify/{eventID}")
 def modifyEvent(eventID: int, event: dc.eventModify, current_user_id: int = Depends(getCurrentUserID)):

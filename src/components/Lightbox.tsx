@@ -15,7 +15,11 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export type LightboxPhoto = { id: string; uri: string };
+export type LightboxPhoto = {
+  id: string;
+  uri: string;
+  isSensitive?: boolean;
+};
 
 export default function Lightbox({
   photos,
@@ -27,6 +31,18 @@ export default function Lightbox({
   onClose: () => void;
 }) {
   const [current, setCurrent] = useState(startIndex);
+  const [revealedPhotoIds, setRevealedPhotoIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const setPhotoRevealed = (photoId: string, revealed: boolean) => {
+    setRevealedPhotoIds((previous) => {
+      const next = new Set(previous);
+      if (revealed) next.add(photoId);
+      else next.delete(photoId);
+      return next;
+    });
+  };
 
   return (
     <Modal visible animationType="fade" statusBarTranslucent>
@@ -59,15 +75,47 @@ export default function Lightbox({
             setCurrent(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH));
           }}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={{ width: SCREEN_WIDTH, justifyContent: "center" }}>
+          renderItem={({ item }) => {
+            const isBlurred =
+              Boolean(item.isSensitive) && !revealedPhotoIds.has(item.id);
+
+            return (
+              <View style={{ width: SCREEN_WIDTH, justifyContent: "center" }}>
               <Image
                 source={{ uri: item.uri }}
                 style={lb.photo}
                 resizeMode="contain"
+                blurRadius={isBlurred ? 40 : 0}
               />
+              {isBlurred ? (
+                <TouchableOpacity
+                  style={lb.sensitiveNotice}
+                  activeOpacity={0.85}
+                  onPress={() => setPhotoRevealed(item.id, true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Nudity detected. View photo"
+                >
+                  <Ionicons name="warning" size={22} color="#FCA5A5" />
+                  <View>
+                    <Text style={lb.warningText}>Nudity detected</Text>
+                    <Text style={lb.sensitiveText}>Tap to view photo</Text>
+                  </View>
+                </TouchableOpacity>
+              ) : item.isSensitive ? (
+                <TouchableOpacity
+                  style={lb.reblurButton}
+                  activeOpacity={0.85}
+                  onPress={() => setPhotoRevealed(item.id, false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Blur photo again"
+                >
+                  <Ionicons name="eye-off" size={17} color="#F0F4FF" />
+                  <Text style={lb.reblurText}>Blur again</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
-          )}
+            );
+          }}
         />
         <View style={lb.dots}>
           {photos.map((_, i) => (
@@ -105,6 +153,34 @@ const lb = StyleSheet.create({
   },
   counterText: { color: "#F0F4FF", fontSize: 13, fontWeight: "600" },
   photo: { width: SCREEN_WIDTH, height: SCREEN_WIDTH },
+  sensitiveNotice: {
+    position: "absolute",
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(69,10,10,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(252,165,165,0.55)",
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 16,
+  },
+  warningText: { color: "#FCA5A5", fontSize: 14, fontWeight: "800" },
+  sensitiveText: { color: "#F0F4FF", fontSize: 12, fontWeight: "600", marginTop: 2 },
+  reblurButton: {
+    position: "absolute",
+    bottom: 18,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "rgba(5,8,16,0.78)",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
+  },
+  reblurText: { color: "#F0F4FF", fontSize: 12, fontWeight: "700" },
   dots: {
     position: "absolute",
     bottom: 60,

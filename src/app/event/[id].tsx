@@ -3,11 +3,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Image,
   Modal,
   Platform,
+  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -40,6 +42,16 @@ type MediaItem = {
   original_file_name: string | null;
   title?: string | null;
   duration_seconds?: number | null;
+  nudity_check?: boolean | string | null;
+  filter_status?: string | null;
+  filter_reason?: string | null;
+  user_approved?: boolean | number | string | null;
+};
+
+type EventPhoto = LightboxPhoto & {
+  filterStatus: string | null;
+  filterReason: string | null;
+  userApproved: boolean;
 };
 
 type UploadedVideo = {
@@ -71,6 +83,50 @@ type GeneratedVideoRecord = {
 type GeneratedVideosResponse = {
   videos: GeneratedVideoRecord[];
 };
+
+type SlideshowPreferenceResponse = {
+  message: string;
+  photo: {
+    photo_id: number;
+    filter_status: string | null;
+    filter_reason: string | null;
+    user_approved: boolean | number | string | null;
+  };
+};
+
+const QUALITY_FILTER_REASONS = new Set([
+  "low_resolution",
+  "blurry",
+  "single_color",
+  "dark",
+  "bright",
+  "low_contrast",
+]);
+
+function isSensitivePhoto(photo: MediaItem) {
+  return (
+    photo.nudity_check === true ||
+    (typeof photo.nudity_check === "string" &&
+      ["1", "true", "yes"].includes(photo.nudity_check.toLowerCase()))
+  );
+}
+
+function isUserApproved(value: boolean | number | string | null | undefined) {
+  return (
+    value === true ||
+    value === 1 ||
+    (typeof value === "string" &&
+      ["1", "true", "yes"].includes(value.toLowerCase()))
+  );
+}
+
+function hasQualityFilterRejection(reason: string | null | undefined) {
+  return Boolean(
+    reason
+      ?.split(",")
+      .some((value) => QUALITY_FILTER_REASONS.has(value.trim().toLowerCase()))
+  );
+}
 
 function formatDuration(seconds: number | null) {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) {
@@ -202,7 +258,7 @@ export default function EventDetailScreen() {
   const { setCurrentEvent } = useCurrentEvent();
   const s = useMemo(() => makeStyles(c), [c]);
   const [event, setEvent] = useState<EventInfo | null>(null);
-  const [photos, setPhotos] = useState<LightboxPhoto[]>([]);
+  const [photos, setPhotos] = useState<EventPhoto[]>([]);
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
   const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
   const [mediaTab, setMediaTab] = useState<
@@ -212,7 +268,76 @@ export default function EventDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [photoActions, setPhotoActions] = useState<EventPhoto | null>(null);
+  const [photoToDelete, setPhotoToDelete] = useState<EventPhoto | null>(null);
+  const [deletingPhoto, setDeletingPhoto] = useState(false);
+  const [updatingPhotoPreference, setUpdatingPhotoPreference] = useState(false);
   const [attempt, setAttempt] = useState(0);
+
+  const updateSlideshowPreference = async (
+    action: "approve" | "exclude"
+  ) => {
+    if (!id || !photoActions || updatingPhotoPreference) return;
+
+    const selectedPhotoId = photoActions.id;
+    setUpdatingPhotoPreference(true);
+    try {
+      const response = await apiFetch<SlideshowPreferenceResponse>(
+        `/events/${id}/photos/${selectedPhotoId}/slideshow`,
+        { action },
+        "PATCH"
+      );
+      setPhotos((current) =>
+        current.map((photo) =>
+          photo.id === selectedPhotoId
+            ? {
+                ...photo,
+                filterStatus: response.photo.filter_status,
+                filterReason: response.photo.filter_reason,
+                userApproved: isUserApproved(response.photo.user_approved),
+              }
+            : photo
+        )
+      );
+      setPhotoActions(null);
+      Alert.alert(
+        action === "approve" ? "Photo Approved" : "Photo Excluded",
+        response.message
+      );
+    } catch (caught) {
+      Alert.alert(
+        "Could Not Update Photo",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      setUpdatingPhotoPreference(false);
+    }
+  };
+
+  const deletePhoto = async () => {
+    if (!id || !photoToDelete || deletingPhoto) return;
+
+    setDeletingPhoto(true);
+    try {
+      await apiFetch(
+        `/events/${id}/photos/${photoToDelete.id}`,
+        undefined,
+        "DELETE"
+      );
+      setPhotos((current) =>
+        current.filter((photo) => photo.id !== photoToDelete.id)
+      );
+      setLightboxIndex(null);
+      setPhotoToDelete(null);
+    } catch (caught) {
+      Alert.alert(
+        "Could Not Remove Photo",
+        caught instanceof Error ? caught.message : "Please try again."
+      );
+    } finally {
+      setDeletingPhoto(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -236,7 +361,14 @@ export default function EventDetailScreen() {
         setPhotos(
           (mediaRes.photos ?? [])
             .filter((p: MediaItem) => p.display_url)
-            .map((p: MediaItem) => ({ id: String(p.id), uri: p.display_url as string }))
+            .map((p: MediaItem) => ({
+              id: String(p.id),
+              uri: p.display_url as string,
+              isSensitive: isSensitivePhoto(p),
+              filterStatus: p.filter_status ?? null,
+              filterReason: p.filter_reason ?? null,
+              userApproved: isUserApproved(p.user_approved),
+            }))
         );
         const loadedVideos = (mediaRes.videos ?? [])
           .filter((video: MediaItem) => video.display_url)
@@ -291,6 +423,18 @@ export default function EventDetailScreen() {
     const [y, m, d] = event.event_date.slice(0, 10).split("-").map(Number);
     return new Date(y, m - 1, d).toLocaleDateString();
   }, [event?.event_date]);
+
+  const selectedPhotoNeedsApproval = Boolean(
+    photoActions?.filterStatus?.toLowerCase() === "rejected" &&
+      !photoActions.userApproved &&
+      hasQualityFilterRejection(photoActions.filterReason)
+  );
+  const selectedPhotoIsUserExcluded = Boolean(
+    photoActions?.filterReason
+      ?.split(",")
+      .some((reason) => reason.trim() === "user_excluded") &&
+      !photoActions?.userApproved
+  );
 
   return (
     <SafeAreaView style={s.safe}>
@@ -427,17 +571,36 @@ export default function EventDetailScreen() {
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={s.grid}
                 renderItem={({ item, index }) => (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => setLightboxIndex(index)}
+                  <View
                     style={{ width: CELL, height: CELL, padding: 1 }}
                   >
-                    <Image
-                      source={{ uri: item.uri }}
-                      style={s.cellImage}
-                      resizeMode="cover"
-                    />
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setLightboxIndex(index)}
+                      style={StyleSheet.absoluteFill}
+                    >
+                      <Image
+                        source={{ uri: item.uri }}
+                        style={s.cellImage}
+                        resizeMode="cover"
+                        blurRadius={item.isSensitive ? 28 : 0}
+                      />
+                      {item.isSensitive ? (
+                        <View style={s.sensitiveOverlay} pointerEvents="none">
+                          <Ionicons name="warning" size={18} color="#FCA5A5" />
+                          <Text style={s.sensitiveText}>Nudity warning</Text>
+                          <Text style={s.sensitiveHint}>Tap to view</Text>
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={s.photoMenuButton}
+                      accessibilityLabel="Photo options"
+                      onPress={() => setPhotoActions(item)}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
                 )}
               />
             )
@@ -579,6 +742,149 @@ export default function EventDetailScreen() {
           onClose={() => setSelectedVideo(null)}
         />
       )}
+      <Modal
+        visible={photoActions !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          !updatingPhotoPreference && setPhotoActions(null)
+        }
+      >
+        <View style={s.actionBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() =>
+              !updatingPhotoPreference && setPhotoActions(null)
+            }
+          />
+          <View style={s.actionSheet}>
+            <View style={s.actionHeader}>
+              <View>
+                <Text style={s.actionTitle}>Photo options</Text>
+                {photoActions?.filterStatus ? (
+                  <Text style={s.actionStatus}>
+                    Filter: {photoActions.filterStatus}
+                    {photoActions.userApproved ? " · user approved" : ""}
+                  </Text>
+                ) : null}
+              </View>
+              {updatingPhotoPreference ? (
+                <ActivityIndicator color={c.accent} />
+              ) : null}
+            </View>
+
+            {selectedPhotoNeedsApproval ? (
+              <TouchableOpacity
+                style={s.actionRow}
+                disabled={updatingPhotoPreference}
+                onPress={() => void updateSlideshowPreference("approve")}
+              >
+                <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={22}
+                    color={c.accent}
+                  />
+                </View>
+                <View style={s.actionCopy}>
+                  <Text style={s.actionLabel}>Approve for slideshow</Text>
+                  <Text style={s.actionDescription}>
+                    Override the automatic photo rejection.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={s.actionRow}
+              disabled={updatingPhotoPreference || selectedPhotoIsUserExcluded}
+              onPress={() => void updateSlideshowPreference("exclude")}
+            >
+              <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
+                <Ionicons
+                  name="remove-circle-outline"
+                  size={22}
+                  color={c.textMuted}
+                />
+              </View>
+              <View style={s.actionCopy}>
+                <Text style={s.actionLabel}>
+                  {selectedPhotoIsUserExcluded
+                    ? "Excluded from slideshow"
+                    : "Don’t include in slideshow"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.actionRow}
+              disabled={updatingPhotoPreference}
+              onPress={() => {
+                const selected = photoActions;
+                setPhotoActions(null);
+                setPhotoToDelete(selected);
+              }}
+            >
+              <View style={[s.actionIcon, { backgroundColor: c.bg }]}>
+                <Ionicons name="trash-outline" size={22} color={c.danger} />
+              </View>
+              <View style={s.actionCopy}>
+                <Text style={[s.actionLabel, { color: c.danger }]}>Delete</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.actionCancel}
+              disabled={updatingPhotoPreference}
+              onPress={() => setPhotoActions(null)}
+            >
+              <Text style={s.actionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={photoToDelete !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deletingPhoto && setPhotoToDelete(null)}
+      >
+        <View style={s.deleteBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => !deletingPhoto && setPhotoToDelete(null)}
+          />
+          <View style={s.deleteCard}>
+            <View style={s.deleteIcon}>
+              <Ionicons name="trash-outline" size={25} color={c.danger} />
+            </View>
+            <Text style={s.deleteTitle}>Remove this photo?</Text>
+            <Text style={s.deleteCopy}>
+              It will be hidden from the gallery. The original file will not be deleted.
+            </Text>
+            <View style={s.deleteActions}>
+              <TouchableOpacity
+                style={s.cancelDeleteButton}
+                disabled={deletingPhoto}
+                onPress={() => setPhotoToDelete(null)}
+              >
+                <Text style={s.cancelDeleteText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.confirmDeleteButton}
+                disabled={deletingPhoto}
+                onPress={() => void deletePhoto()}
+              >
+                {deletingPhoto ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={s.confirmDeleteText}>Remove</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -683,6 +989,143 @@ const makeStyles = (c: ThemeColors) =>
       borderRadius: 4,
       backgroundColor: c.surface,
     },
+    sensitiveOverlay: {
+      position: "absolute",
+      top: 1,
+      right: 1,
+      bottom: 1,
+      left: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 5,
+      backgroundColor: "rgba(5,8,16,0.22)",
+      borderRadius: 4,
+    },
+    sensitiveText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+    sensitiveHint: { color: "rgba(255,255,255,0.78)", fontSize: 10, fontWeight: "600" },
+    photoMenuButton: {
+      position: "absolute",
+      top: 7,
+      right: 7,
+      zIndex: 4,
+      width: 32,
+      height: 32,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(5,8,16,0.82)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.35)",
+    },
+    actionBackdrop: {
+      flex: 1,
+      justifyContent: "flex-end",
+      alignItems: "center",
+      backgroundColor: "rgba(5,8,16,0.66)",
+    },
+    actionSheet: {
+      width: "100%",
+      maxWidth: 520,
+      paddingHorizontal: 18,
+      paddingTop: 18,
+      paddingBottom: Platform.OS === "ios" ? 34 : 20,
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    actionHeader: {
+      minHeight: 48,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    actionTitle: { color: c.textBright, fontSize: 20, fontWeight: "800" },
+    actionStatus: { color: c.textMuted, fontSize: 12, marginTop: 3 },
+    actionRow: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+    },
+    actionIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 13,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    actionCopy: { flex: 1 },
+    actionLabel: { color: c.textPrimary, fontSize: 15, fontWeight: "700" },
+    actionDescription: {
+      color: c.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 2,
+    },
+    actionCancel: {
+      minHeight: 46,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 12,
+      borderRadius: 12,
+      backgroundColor: c.bg,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    actionCancelText: { color: c.textPrimary, fontSize: 14, fontWeight: "700" },
+    deleteBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 24,
+      backgroundColor: "rgba(5,8,16,0.76)",
+    },
+    deleteCard: {
+      width: "100%",
+      maxWidth: 420,
+      borderRadius: 20,
+      padding: 24,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    deleteIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 15,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: c.bg,
+      marginBottom: 15,
+    },
+    deleteTitle: { color: c.textBright, fontSize: 21, fontWeight: "800" },
+    deleteCopy: { color: c.textMuted, fontSize: 14, lineHeight: 20, marginTop: 7 },
+    deleteActions: { flexDirection: "row", gap: 10, marginTop: 22 },
+    cancelDeleteButton: {
+      flex: 1,
+      minHeight: 46,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    cancelDeleteText: { color: c.textPrimary, fontWeight: "700" },
+    confirmDeleteButton: {
+      flex: 1,
+      minHeight: 46,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 12,
+      backgroundColor: c.danger,
+    },
+    confirmDeleteText: { color: "#fff", fontWeight: "800" },
     empty: {
       flex: 1,
       alignItems: "center",
