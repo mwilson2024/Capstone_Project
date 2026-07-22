@@ -8,13 +8,14 @@ from shared.ProjectHelper import Helpers as ph
 
 
 class ImgQualFilt:
-    def __init__(self, db, log, minWidth=800, minHeight=600, blurThreshold=100., darkThreshold = 45.0, brightThreshold = 215.0, contrastThreshold = 30.0):
+    def __init__(self, db, log, minWidth=800, minHeight=600, blurThreshold=100., darkThreshold = 45.0, brightThreshold = 215.0, contrastThreshold = 30.0, noiseThreshold = 12.0):
         self.minWidth = minWidth
         self.minHeight = minHeight
         self.blurThres = blurThreshold
         self.darkThres = darkThreshold
         self.brightThres = brightThreshold
         self.contrastThres = contrastThreshold
+        self.noiseThres = noiseThreshold
         self.db = db
         self.log = log
 
@@ -71,7 +72,23 @@ class ImgQualFilt:
 
     def errorDict(self, photoID):
         return self.buildDict(photoID,"error",["FNF"],101.0,-1,-1,0,0,None, None,None,None)
-        
+
+    def noiseJudgement(self, img, height, width):
+    # Immerkaer method
+
+        if height < 3 or width < 3:
+            return 0.0
+        kernal = np.array([[1, -2, 1],
+                            [-2, 4, -2],
+                            [1, -2, 1]], dtype=np.float64)
+
+        response = cv.filter2D(img.astype(np.float64), cv.CV_64F, kernal)
+
+        valid_response = response[1:-1, 1:-1]
+        sigma = np.sum(np.abs(valid_response))
+        sigma *= np.sqrt(0.5 * np.pi) / (6 * (width - 2) * (height - 2))
+
+        return sigma
 
     def analyze(self, photoID: int, imgPath: str):
         path = Path(imgPath)
@@ -97,6 +114,8 @@ class ImgQualFilt:
         brightScore = float(np.mean(gray))
         contrastScore = float(np.std(gray))
 
+        noise = self.noiseJudgement(gray, height, width)
+
         reason = []
 
         if width < self.minWidth or height < self.minHeight:
@@ -116,6 +135,9 @@ class ImgQualFilt:
         
         if contrastScore < self.contrastThres:
             reason.append('low_contrast')
+
+        if noise > self.noiseThres:
+            reason.append('noisy_photo')
 
         if len(reason) > 0:
             status = 'rejected'

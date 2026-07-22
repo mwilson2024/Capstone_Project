@@ -1,12 +1,12 @@
 import os
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
 from shared.ProjectHelper import Helpers as ph
 from supabase import Client, create_client
-from datetime import datetime, timezone
 
 
 class SQLbuilder:
