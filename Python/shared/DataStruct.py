@@ -178,11 +178,16 @@ class uploadModel(BaseModel):
 class photoSlideshowAction(BaseModel):
     action: Literal["approve", "exclude"]
 
+class PromptHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=1000)
+
 class PromptRequest(BaseModel):
     eventID: int = Field(..., gt=0)
     userID: int = Field(..., gt=0)
     guestID: int | None = None
     prompt: str = Field(..., min_length=1, max_length=1000)
+    history: list[PromptHistoryMessage] = Field(default_factory=list, max_length=10)
 
 
 class MakeVideoRequest(BaseModel):

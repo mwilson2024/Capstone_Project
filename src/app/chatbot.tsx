@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -31,8 +30,11 @@ type EventsResponse = { events: EventRecord[] };
 type PromptResponse = {
   inserted:
     | boolean
-    | Array<{ prompt_request_id?: number }>;
+    | { prompt_request_id?: number | string }
+    | Array<{ prompt_request_id?: number | string }>;
   analysis: {
+    action?: "create" | "clarify" | "reject" | string;
+    follow_up_question?: string | null;
     response?: string;
     reason?: string;
     allowed?: boolean;
@@ -45,7 +47,6 @@ type Message = {
   canCreateVideo?: boolean;
   eventId?: number;
   requestId?: number | null;
-  liked?: boolean;
   jobId?: number;
   jobStatus?: "queued" | "processing" | "completed" | "failed";
 };
@@ -215,6 +216,13 @@ export default function ChatbotScreen() {
     setSending(true);
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     try {
+      const history = messages
+        .filter((message) => message.id !== "intro" && !message.jobStatus)
+        .slice(-10)
+        .map((message) => ({
+          role: message.role,
+          content: message.text,
+        }));
       const result = await apiFetch<PromptResponse>(
         "/prompt/analyze",
         {
@@ -222,27 +230,41 @@ export default function ChatbotScreen() {
           userID: selectedEvent.user_id,
           guestID: null,
           prompt,
+          history,
         },
         "POST"
       );
+      const action = String(result.analysis?.action ?? "").trim().toLowerCase();
+      const isClarification =
+        action === "clarify" || Boolean(result.analysis?.follow_up_question);
       const reply =
+        (isClarification ? result.analysis?.follow_up_question : null) ||
         result.analysis?.response ||
         result.analysis?.reason ||
         "I analyzed that request, but no response text was returned.";
       const insertedRow = Array.isArray(result.inserted)
         ? result.inserted[0]
-        : null;
+        : typeof result.inserted === "object" && result.inserted !== null
+          ? result.inserted
+          : null;
+      const requestId = Number(insertedRow?.prompt_request_id);
+      const isCreateAction =
+        action === "create" ||
+        (!action && result.analysis?.allowed === true && !isClarification);
+      const canCreateVideo =
+        isCreateAction &&
+        result.analysis?.allowed !== false &&
+        Number.isInteger(requestId) &&
+        requestId > 0;
       setMessages((current) => [
         ...current,
         {
           id: `${Date.now()}-assistant`,
           role: "assistant",
           text: reply,
-          canCreateVideo:
-            result.analysis?.allowed === true &&
-            Boolean(insertedRow?.prompt_request_id),
+          canCreateVideo,
           eventId: selectedEvent.event_id,
-          requestId: insertedRow?.prompt_request_id ?? null,
+          requestId: canCreateVideo ? requestId : null,
         },
       ]);
     } catch (caught) {
@@ -294,21 +316,21 @@ export default function ChatbotScreen() {
         result.job_id
       );
     } catch (caught) {
-      Alert.alert(
-        "Could not create video",
-        caught instanceof Error ? caught.message : "Please try again."
-      );
+      const errorText =
+        caught instanceof Error ? caught.message : "Please try again.";
+      setMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-creation-error`,
+          role: "assistant",
+          text: `I couldn't create the video: ${errorText}`,
+          eventId: message.eventId,
+          jobStatus: "failed",
+        },
+      ]);
     } finally {
       setCreatingForMessage(null);
     }
-  };
-
-  const likePrompt = (messageId: string) => {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === messageId ? { ...message, liked: true } : message
-      )
-    );
   };
 
   return (
@@ -405,30 +427,20 @@ export default function ChatbotScreen() {
                     </View>
                   ) : null}
                   {message.canCreateVideo ? (
-                    message.liked ? (
-                      <TouchableOpacity
-                        style={styles.createVideoButton}
-                        disabled={creatingForMessage !== null}
-                        onPress={() => void createVideo(message)}
-                      >
-                        {creatingForMessage === message.id ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <>
-                            <Ionicons name="videocam" size={17} color="#fff" />
-                            <Text style={styles.createVideoText}>CREATE VIDEO</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.likeButton}
-                        onPress={() => likePrompt(message.id)}
-                      >
-                        <Ionicons name="thumbs-up-outline" size={17} color="#8B5CF6" />
-                        <Text style={styles.likeText}>LIKE THIS PROMPT</Text>
-                      </TouchableOpacity>
-                    )
+                    <TouchableOpacity
+                      style={styles.createVideoButton}
+                      disabled={creatingForMessage !== null}
+                      onPress={() => void createVideo(message)}
+                    >
+                      {creatingForMessage === message.id ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="videocam" size={17} color="#fff" />
+                          <Text style={styles.createVideoText}>CREATE VIDEO</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
                   ) : null}
                 </View>
               ))}

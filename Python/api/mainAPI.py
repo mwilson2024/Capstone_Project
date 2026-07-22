@@ -577,17 +577,64 @@ async def analyzePrompt(request: dc.PromptRequest, current_user_id: int = Depend
     checkRateLimit(f"prompt_analyze:{current_user_id}", maxCall=20, windowSec=3600)
     try:
         verifyEventOwner(request.eventID, current_user_id)
+        eventContext = db.getEventByID(request.eventID) or {}
         bot = ChatBot.chatBotOpenAI(logger)
-        result = bot.getResponse(request.prompt)
+        history = [message.model_dump() for message in request.history]
+        result = bot.getResponse(request.prompt, history, eventContext)
 
         if not isinstance(result, dict):
             return {
-                "allowed": False,
-                "out_of_scope": False,
-                "unsafe_or_invalid": True,
-                "reason": "The prompt analyzer returned data that was not a JSON object.",
-                "response": "Sorry, I could not understand that request."
+                "event_id": request.eventID,
+                "user_id": current_user_id,
+                "guest_id": request.guestID,
+                "inserted": [],
+                "analysis": {
+                    "action": "reject",
+                    "follow_up_question": None,
+                    "allowed": False,
+                    "out_of_scope": False,
+                    "unsafe_or_invalid": True,
+                    "reason": "The prompt analyzer returned data that was not a JSON object.",
+                    "response": "Sorry, I could not understand that request."
+                }
             }
+
+        action = str(result.get("action") or "").strip().lower()
+        actionAliases = {
+            "follow up": "clarify",
+            "follow-up": "clarify",
+            "follow up question": "clarify",
+            "follow_up_question": "clarify",
+            "question": "clarify",
+        }
+        action = actionAliases.get(action, action)
+
+        if result.get("out_of_scope") or result.get("unsafe_or_invalid"):
+            action = "reject"
+        elif action not in {"create", "clarify", "reject"}:
+            action = (
+                "clarify"
+                if str(result.get("follow_up_question") or "").strip()
+                else "create"
+            )
+
+        if action == "clarify":
+            followUpQuestion = str(
+                result.get("follow_up_question")
+                or result.get("response")
+                or "What mood or style would you like for the slideshow?"
+            ).strip()
+            result["follow_up_question"] = followUpQuestion
+            result["response"] = followUpQuestion
+            result["allowed"] = False
+        elif action == "create":
+            result["follow_up_question"] = None
+            result["allowed"] = True
+        else:
+            result["follow_up_question"] = None
+            result["allowed"] = False
+
+        result["action"] = action
 
         result["event_id"] = request.eventID
         result["user_id"] = current_user_id
@@ -870,12 +917,27 @@ async  def createStoryBoard(req: dc.StoryboardCreateRequest , current_user_id: i
     try:
 
         verifyEventOwner(req.event_id, current_user_id)
+
+        if not req.request_id:
+            raise HTTPException(status_code=400,detail="A prompt request is required before creating a storyboard.")
+
+        prompt = db.getPromptRequestByID(req.request_id)
+        if not prompt:
+            raise HTTPException(status_code=404,detail="Prompt request not found.")
+        if int(prompt.get("event_id") or 0) != req.event_id:
+            raise HTTPException(status_code=400,detail="The prompt request does not belong to this event.")
+        if not prompt.get("allowed", False):
+            raise HTTPException(status_code=409,detail="This prompt needs clarification before a video can be created.")
+
         sb = StoryBoard.StoryBoardGen(db=db, log=logger)
 
         res = sb.createStoryboardForEvent(req.event_id, req.request_id)
         
         if not res:
-            raise HTTPException(status_code=404,detail="Storyboard could not be created. No approved photos may exist for this event.")
+            raise HTTPException(
+                status_code=409,
+                detail="No eligible media is available. Wait for photo processing to finish or approve photos for the slideshow in the gallery."
+            )
 
         storyboard = res.get("storyboard")
         items = res.get("items", [])

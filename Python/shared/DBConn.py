@@ -1731,7 +1731,7 @@ class SQLbuilder:
             photoResult = (self.client.table("photos")
                            .select("photo_id,event_id,upload_id,photo_taken,created_at")
                            .eq("event_id", eventID)
-                           .eq("hide_photo", False)
+                           .or_("hide_photo.eq.false,hide_photo.is.null")
                            .execute())
             photos = photoResult.data or []
 
@@ -1745,7 +1745,12 @@ class SQLbuilder:
                             .select("photo_id,status,reason,blur_score,bright_score,contrast_score,gps,image_hash,photo_original_date,camera_model,user_approved")
                             .in_("photo_id", photoIDs)
                             .execute())
-            approvedFilters = {row["photo_id"]: row for row in filterResult.data or [] if row.get("status") == "approved" or row.get("user_approved") is True}
+            approvedFilters = {
+                row["photo_id"]: row
+                for row in filterResult.data or []
+                if row.get("status") == "approved"
+                or row.get("user_approved") in (True, 1, "1")
+            }
 
             if not approvedFilters:
                 return []

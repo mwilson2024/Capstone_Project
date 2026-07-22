@@ -6,7 +6,7 @@ import {
   useCameraPermissions,
 } from "expo-camera";
 import * as MediaLibrary from "expo-media-library";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { apiUpload } from "@/lib/api";
+import { apiFetch, apiUpload } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { useCurrentEvent } from "@/lib/CurrentEventContext";
 
@@ -33,6 +33,13 @@ type CapturedPhoto = {
   uri: string;
   timestamp: number;
 };
+
+type EventOption = {
+  event_id: number;
+  name: string;
+};
+
+type EventsResponse = { events: EventOption[] };
 
 //Permission Gate
 function PermissionScreen({ onRequest }: { onRequest: () => void }) {
@@ -110,14 +117,30 @@ const perm = StyleSheet.create({
 function PhotoPreview({
   photo,
   uploadLabel,
+  selectedEventName,
+  selectedEventId,
+  events,
+  eventsLoading,
+  eventPickerOpen,
   uploading,
+  onChooseEvent,
+  onCloseEventPicker,
+  onSelectEvent,
   onDiscard,
   onSave,
   onUpload,
 }: {
   photo: CapturedPhoto;
   uploadLabel: string;
+  selectedEventName: string | null;
+  selectedEventId: number | null;
+  events: EventOption[];
+  eventsLoading: boolean;
+  eventPickerOpen: boolean;
   uploading: boolean;
+  onChooseEvent: () => void;
+  onCloseEventPicker: () => void;
+  onSelectEvent: (event: EventOption) => void;
   onDiscard: () => void;
   onSave: () => void;
   onUpload: () => void;
@@ -146,6 +169,30 @@ function PhotoPreview({
 
         <View style={preview.bottomBar}>
           <TouchableOpacity
+            style={preview.eventSelector}
+            onPress={onChooseEvent}
+            activeOpacity={0.85}
+            disabled={eventsLoading}
+          >
+            {eventsLoading ? (
+              <ActivityIndicator size="small" color="#93C5FD" />
+            ) : (
+              <Ionicons name="calendar-outline" size={20} color="#93C5FD" />
+            )}
+            <View style={preview.eventSelectorText}>
+              <Text style={preview.eventSelectorLabel}>UPLOAD TO EVENT</Text>
+              <Text style={preview.eventSelectorName} numberOfLines={1}>
+                {eventsLoading
+                  ? "Loading events..."
+                  : selectedEventName ?? "Choose an event"}
+              </Text>
+            </View>
+            {!eventsLoading ? (
+              <Ionicons name="chevron-down" size={20} color="#93C5FD" />
+            ) : null}
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[preview.uploadBtn, uploading && preview.uploadBtnBusy]}
             onPress={onUpload}
             activeOpacity={0.85}
@@ -169,6 +216,48 @@ function PhotoPreview({
             </TouchableOpacity>
           </View>
         </View>
+
+        {eventPickerOpen ? (
+          <View style={preview.pickerBackdrop}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={onCloseEventPicker}
+            />
+            <View style={preview.pickerCard}>
+              <Text style={preview.pickerTitle}>Choose an event</Text>
+              <FlatList
+                data={events}
+                keyExtractor={(item) => String(item.event_id)}
+                ListEmptyComponent={
+                  <Text style={preview.pickerEmpty}>No events available.</Text>
+                }
+                renderItem={({ item }) => {
+                  const selected = item.event_id === selectedEventId;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        preview.pickerOption,
+                        selected && preview.pickerOptionSelected,
+                      ]}
+                      onPress={() => onSelectEvent(item)}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color={selected ? "#60A5FA" : "#94A3B8"}
+                      />
+                      <Text style={preview.pickerOptionText}>{item.name}</Text>
+                      {selected ? (
+                        <Ionicons name="checkmark-circle" size={20} color="#60A5FA" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -207,6 +296,30 @@ const preview = StyleSheet.create({
     left: 20,
     right: 20,
     gap: 12,
+  },
+  eventSelector: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingHorizontal: 15,
+    backgroundColor: "rgba(10,18,34,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(147,197,253,0.45)",
+    borderRadius: 14,
+  },
+  eventSelectorText: { flex: 1 },
+  eventSelectorLabel: {
+    color: "#93C5FD",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.3,
+  },
+  eventSelectorName: {
+    color: "#F0F4FF",
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 3,
   },
   actionRow: {
     flexDirection: "row",
@@ -269,6 +382,45 @@ const preview = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  pickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(5,8,16,0.82)",
+    paddingHorizontal: 24,
+  },
+  pickerCard: {
+    maxHeight: "70%",
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#334155",
+    borderRadius: 20,
+    padding: 20,
+  },
+  pickerTitle: {
+    color: "#F0F4FF",
+    fontSize: 21,
+    fontWeight: "800",
+    marginBottom: 14,
+  },
+  pickerOption: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#334155",
+    borderRadius: 13,
+    marginBottom: 9,
+  },
+  pickerOptionSelected: {
+    borderColor: "#3B82F6",
+    backgroundColor: "rgba(37,99,235,0.16)",
+  },
+  pickerOptionText: { flex: 1, color: "#F0F4FF", fontSize: 15 },
+  pickerEmpty: { color: "#94A3B8", textAlign: "center", paddingVertical: 24 },
 });
 
 // Thumbnail Strip
@@ -310,7 +462,7 @@ const thumb = StyleSheet.create({
 // Camera Screen
 export default function CameraScreen() {
   const { loggedIn } = useAuth();
-  const { eventId, eventName } = useCurrentEvent();
+  const { eventId, eventName, setCurrentEvent } = useCurrentEvent();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>("back");
   const [flash, setFlash] = useState<FlashMode>("off");
@@ -320,7 +472,57 @@ export default function CameraScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<CapturedPhoto | null>(null);
+  const [events, setEvents] = useState<EventOption[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventPickerOpen, setEventPickerOpen] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+
+  useEffect(() => {
+    if (!loggedIn) {
+      setEvents([]);
+      setEventsError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setEventsLoading(true);
+    setEventsError(null);
+
+    apiFetch<EventOption[] | EventsResponse>(
+      "/users/me/events",
+      undefined,
+      "GET",
+      controller.signal
+    )
+      .then((response) => {
+        const availableEvents = Array.isArray(response)
+          ? response
+          : response.events ?? [];
+        setEvents(availableEvents);
+
+        if (availableEvents.length === 1) {
+          const onlyEvent = availableEvents[0];
+          setCurrentEvent(onlyEvent.event_id, onlyEvent.name);
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setEventsError(
+          error instanceof Error ? error.message : "Could not load events."
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setEventsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [loggedIn]);
+
+  const selectedEventName =
+    events.find((event) => event.event_id === eventId)?.name ??
+    eventName ??
+    null;
 
   const flashIcons: Record<FlashMode, keyof typeof Ionicons.glyphMap> = {
     off: "flash-off",
@@ -369,6 +571,7 @@ export default function CameraScreen() {
       setCapturedPhotos((prev) =>
         prev.some((p) => p.id === previewPhoto.id) ? prev : [previewPhoto, ...prev]
       );
+      setEventPickerOpen(false);
       setPreviewPhoto(null);
       Alert.alert("Saved!", "Photo saved to your camera roll.");
     } catch {
@@ -377,6 +580,7 @@ export default function CameraScreen() {
   };
 
   const handleDiscard = () => {
+    setEventPickerOpen(false);
     setPreviewPhoto(null);
   };
 
@@ -387,7 +591,15 @@ export default function CameraScreen() {
       return;
     }
     if (!eventId) {
-      Alert.alert("No Event Selected", "Pick an event on the Upload tab first.");
+      if (eventsLoading) {
+        Alert.alert("Loading Events", "Your events are still loading. Try again in a moment.");
+      } else if (eventsError) {
+        Alert.alert("Could Not Load Events", eventsError);
+      } else if (events.length === 0) {
+        Alert.alert("No Events", "Create an event before uploading this photo.");
+      } else {
+        setEventPickerOpen(true);
+      }
       return;
     }
 
@@ -401,8 +613,9 @@ export default function CameraScreen() {
         type: "image/jpeg",
       } as any);
       await apiUpload("/upload/user", form);
+      setEventPickerOpen(false);
       setPreviewPhoto(null);
-      Alert.alert("Uploaded", `Photo uploaded to ${eventName ?? "the selected event"}.`);
+      Alert.alert("Uploaded", `Photo uploaded to ${selectedEventName ?? "the selected event"}.`);
     } catch (error: any) {
       Alert.alert("Upload Failed", error.message ?? "Please try again.");
     } finally {
@@ -499,13 +712,32 @@ export default function CameraScreen() {
         <PhotoPreview
           photo={previewPhoto}
           uploadLabel={
-            eventName
-              ? `Upload to ${eventName}`
+            selectedEventName
+              ? `Upload to ${selectedEventName}`
               : eventId
                 ? "Upload to selected event"
                 : "Upload"
           }
+          selectedEventName={selectedEventName}
+          selectedEventId={eventId}
+          events={events}
+          eventsLoading={eventsLoading}
+          eventPickerOpen={eventPickerOpen}
           uploading={isUploading}
+          onChooseEvent={() => {
+            if (eventsError) {
+              Alert.alert("Could Not Load Events", eventsError);
+            } else if (events.length === 0 && !eventsLoading) {
+              Alert.alert("No Events", "Create an event before uploading this photo.");
+            } else {
+              setEventPickerOpen(true);
+            }
+          }}
+          onCloseEventPicker={() => setEventPickerOpen(false)}
+          onSelectEvent={(event) => {
+            setCurrentEvent(event.event_id, event.name);
+            setEventPickerOpen(false);
+          }}
           onDiscard={handleDiscard}
           onSave={handleSave}
           onUpload={handleUpload}
