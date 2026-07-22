@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "Python/api/**"
+      - "Python/shared/**"
       - "Python/requirements.txt"
       - ".github/workflows/main_csi4999-api.yml"
 
@@ -13,7 +14,6 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
-  API_PATH: "Python/api"
   REQUIREMENTS_PATH: "Python/requirements.txt"
 
 jobs:
@@ -37,15 +37,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r "${{ env.REQUIREMENTS_PATH }}"
 
-      - name: Copy requirements into API deployment folder
+      - name: Create API deployment package
         run: |
-          cp "${{ env.REQUIREMENTS_PATH }}" "${{ env.API_PATH }}/requirements.txt"
+          mkdir -p deploy-package
+          cp -R Python/api deploy-package/api
+          cp -R Python/shared deploy-package/shared
+          cp Python/requirements.txt deploy-package/requirements.txt
 
       - name: Upload API deployment artifact
         uses: actions/upload-artifact@v4
         with:
           name: python-api
-          path: ${{ env.API_PATH }}
+          path: deploy-package
           if-no-files-found: error
           retention-days: 1
 
