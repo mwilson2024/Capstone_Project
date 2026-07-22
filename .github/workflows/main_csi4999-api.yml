@@ -54,7 +54,6 @@ jobs:
     needs: build
 
     permissions:
-      id-token: write
       contents: read
 
     steps:
@@ -64,17 +63,10 @@ jobs:
           name: python-api
           path: api-package
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A1263883A25F4B789A9ED13113B154A4 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E75A7838127F44D08BB80B3F032D447D }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_25FDA1C95BDF4044895F1A49A7536269 }}
-
       - name: Deploy API to Azure Web App
         uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
         with:
           app-name: "csi4999-api"
           slot-name: "Production"
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: "api-package"
