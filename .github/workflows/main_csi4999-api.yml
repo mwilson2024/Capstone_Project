@@ -1,7 +1,3 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-# More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
-
 name: Build and deploy Python app to Azure Web App - csi4999-api
 
 on:
@@ -67,7 +63,7 @@ jobs:
         with:
           name: python-api
           path: api-package
-          
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -75,10 +71,11 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E75A7838127F44D08BB80B3F032D447D }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_25FDA1C95BDF4044895F1A49A7536269 }}
 
-       - name: Deploy API to Azure Web App
+      - name: Deploy API to Azure Web App
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: "csi4999-api"
           slot-name: "Production"
           package: "api-package"
+          
