@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
-import { onUnauthorized, setToken } from "./api";
+import { API_CONFIGURED, onUnauthorized, setToken } from "./api";
 
 const TOKEN_KEY = "auth_token";
 const PROFILE_KEY = "auth_profile";
@@ -100,8 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         storage.get(),
         profileStorage.get(),
       ]);
-      const t =
-        stored === SIGNED_OUT ? "" : stored || process.env.EXPO_PUBLIC_JWT_TOKEN || "";
+      const t = API_CONFIGURED && stored !== SIGNED_OUT
+        ? stored || process.env.EXPO_PUBLIC_JWT_TOKEN || ""
+        : "";
       setToken(t);
       setLoggedIn(t.length > 0);
       setUser(t.length > 0 ? storedProfile : null);

@@ -12,6 +12,7 @@ pwdlib[argon2]
 azure-storage-queue
 azure-storage-blob
 supabase
+httpx
 openai
 
 Pillow

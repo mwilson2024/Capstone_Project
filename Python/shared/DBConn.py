@@ -1,6 +1,8 @@
 import os
+import time
 from typing import Optional
 
+import httpx
 from dotenv import load_dotenv
 from shared.ProjectHelper import Helpers as ph
 from supabase import Client, create_client
@@ -28,6 +30,25 @@ class SQLbuilder:
         except Exception as error:
             self.log.info("Connection failed:", error)
             return False
+
+    def executeWithRetry(self, operation, description: str, maxAttempts: int = 3):
+        for attempt in range(1, maxAttempts + 1):
+            try:
+                return operation()
+            except httpx.TransportError as error:
+                if attempt == maxAttempts:
+                    raise
+
+                delay = 0.2 * (2 ** (attempt - 1))
+                self.log.warning(
+                    "Transient Supabase transport error while %s (attempt %s/%s): %s. Retrying in %.1fs.",
+                    description,
+                    attempt,
+                    maxAttempts,
+                    error,
+                    delay,
+                )
+                time.sleep(delay)
 
     def insertToDB(self, values, table: str = "Basic",  kwMatch: str ="photo_id"):
         try:
@@ -806,8 +827,8 @@ class SQLbuilder:
         result = {"photos": [], "videos": [], "photo_total": 0, "video_total": 0}
 
         if dataType in ["both", "photos"]:
-            photos = (
-                self.client
+            photos = self.executeWithRetry(
+                lambda: self.client
                 .table("photos")
                 .select(
                     """
@@ -852,7 +873,8 @@ class SQLbuilder:
                 .eq("uploads.media_type", "photo")
                 .order("created_at", desc=True)
                 .range(offset, rangeEnd)
-                .execute()
+                .execute(),
+                "loading event photos",
             )
             photoRows = photos.data or []
             result["photo_total"] = int(photos.count or 0)
@@ -861,23 +883,25 @@ class SQLbuilder:
             rankingByID = {}
             filterByID = {}
             if photoIDs:
-                filters = (
-                    self.client
+                filters = self.executeWithRetry(
+                    lambda: self.client
                     .table("photo_filter")
                     .select("photo_id,status,reason,user_approved,image_hash")
                     .in_("photo_id", photoIDs)
-                    .execute()
+                    .execute(),
+                    "loading photo filter results",
                 )
                 filterByID = {
                     row["photo_id"]: row
                     for row in filters.data or []
                 }
-                rankings = (
-                    self.client
+                rankings = self.executeWithRetry(
+                    lambda: self.client
                     .table("photo_ranking")
                     .select("photo_id,nudity_check")
                     .in_("photo_id", photoIDs)
-                    .execute()
+                    .execute(),
+                    "loading photo ranking results",
                 )
                 rankingByID = {
                     row["photo_id"]: row
@@ -895,8 +919,8 @@ class SQLbuilder:
             result["photos"] = photoRows
             
         if dataType in ["both", "videos"]:
-            videos = (
-                self.client
+            videos = self.executeWithRetry(
+                lambda: self.client
                 .table("videos")
                 .select(
                     """
@@ -947,7 +971,8 @@ class SQLbuilder:
                 .eq("uploads.media_type", "video")
                 .order("created_at", desc=True)
                 .range(offset, rangeEnd)
-                .execute()
+                .execute(),
+                "loading event videos",
             )
             result["videos"] = videos.data or []
             result["video_total"] = int(videos.count or 0)

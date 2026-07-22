@@ -84,9 +84,16 @@ function formatEventDate(value: string) {
   });
 }
 
-async function loadGallery(event: EventRecord, index: number): Promise<Gallery> {
+async function loadGallery(
+  event: EventRecord,
+  index: number,
+  signal?: AbortSignal
+): Promise<Gallery> {
   const media = await apiFetch<EventMediaResponse>(
-    `/events/${event.event_id}/media?dataType=both&limit=1&offset=0`
+    `/events/${event.event_id}/media?dataType=both&limit=1&offset=0`,
+    undefined,
+    "GET",
+    signal
   );
   const palette = GALLERY_COLORS[index % GALLERY_COLORS.length];
   const photos = (media.photos ?? [])
@@ -256,9 +263,11 @@ export default function GalleryScreen() {
           "GET",
           controller.signal
         );
-        const loaded = await Promise.all(
-          response.events.map((event, index) => loadGallery(event, index))
-        );
+        const loaded: Gallery[] = [];
+        for (const [index, event] of response.events.entries()) {
+          if (controller.signal.aborted) return;
+          loaded.push(await loadGallery(event, index, controller.signal));
+        }
         setGalleries(loaded);
         setLoading(false);
       } catch (err: any) {
