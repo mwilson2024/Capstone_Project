@@ -78,4 +78,3 @@ jobs:
           app-name: "csi4999-api"
           slot-name: "Production"
           package: "api-package"
-          
