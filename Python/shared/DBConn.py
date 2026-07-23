@@ -6,7 +6,7 @@ from typing import Optional
 import httpx
 from dotenv import load_dotenv
 from shared.ProjectHelper import Helpers as ph
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 
 class SQLbuilder:
@@ -19,7 +19,15 @@ class SQLbuilder:
         if not self.supabase_url or not self.service_key:
             raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
 
-        self.client: Client = create_client(self.supabase_url, self.service_key)
+        # The synchronous Supabase client is shared by concurrent FastAPI
+        # requests. Disabling HTTP/2 avoids httpcore stream-state failures when
+        # the gallery loads media and generated videos at the same time.
+        self.http_client = httpx.Client(http2=False)
+        self.client: Client = create_client(
+            self.supabase_url,
+            self.service_key,
+            options=ClientOptions(httpx_client=self.http_client),
+        )
         self.log = log
 
     def connect(self):
@@ -2350,18 +2358,19 @@ class SQLbuilder:
             return []
 
         try:
-            result = (
-                self.client
-                .table("generated_videos")
-                .select(
-                    "gen_vid_id,event_id,music_id,title,"
-                    "file_name,file_path,video_type,status,"
-                    "duration_seconds,width,height,fps,file_size,"
-                    "created_at,last_updated"
-                )
-                .eq("event_id", eventID)
-                .order("created_at", desc=True)
-                .execute()
+            result = self.executeWithRetry(
+                lambda: self.client
+                    .table("generated_videos")
+                    .select(
+                        "gen_vid_id,event_id,music_id,title,"
+                        "file_name,file_path,video_type,status,"
+                        "duration_seconds,width,height,fps,file_size,"
+                        "created_at,last_updated"
+                    )
+                    .eq("event_id", eventID)
+                    .order("created_at", desc=True)
+                    .execute(),
+                f"loading generated videos for event_id={eventID}",
             )
 
             return result.data or []
