@@ -93,7 +93,7 @@ class ImgQualFilt:
     def analyze(self, photoID: int, imgPath: str):
         path = Path(imgPath)
 
-        rejectNum = 1
+        maxMildIssues = 1
 
         imgHash = self.hashImages(path)
         imgHash = self.hashToStr(imgHash)
@@ -119,29 +119,49 @@ class ImgQualFilt:
         noise = self.noiseJudgement(gray, height, width)
 
         reason = []
+        severeReason = []
 
         if width < self.minWidth or height < self.minHeight:
             reason.append("low_resolution")
+            if (
+                width < self.minWidth * 0.5
+                or height < self.minHeight * 0.5
+            ):
+                severeReason.append("low_resolution")
 
         if blurScore < self.blurThres:
             reason.append('blurry')
+            if blurScore < self.blurThres * 0.25:
+                severeReason.append("blurry")
 
         if singleColor:
             reason.append('single_color')
+            severeReason.append("single_color")
 
         if brightScore < self.darkThres:
             reason.append('dark')
-        
+            if brightScore < self.darkThres * 0.35:
+                severeReason.append("dark")
+
         if brightScore > self.brightThres:
             reason.append('bright')
-        
+            severeBrightThreshold = self.brightThres + (
+                (255.0 - self.brightThres) * 0.75
+            )
+            if brightScore > severeBrightThreshold:
+                severeReason.append("bright")
+
         if contrastScore < self.contrastThres:
             reason.append('low_contrast')
+            if contrastScore < self.contrastThres * 0.33:
+                severeReason.append("low_contrast")
 
         if noise > self.noiseThres:
             reason.append('noisy_photo')
+            if noise > self.noiseThres * 2.5:
+                severeReason.append("noisy_photo")
 
-        if len(reason) > rejectNum:
+        if severeReason or len(reason) > maxMildIssues:
             status = 'rejected'
         else:
             status = 'approved'

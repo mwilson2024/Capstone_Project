@@ -844,6 +844,36 @@ class SQLbuilder:
             return None
 
         try:
+            rawMood = str(promptData.get("mood") or "general").strip().lower()
+            normalizedMood = {
+                "fun": "energetic",
+                "excited": "energetic",
+                "exciting": "energetic",
+                "high energy": "energetic",
+                "upbeat": "energetic",
+            }.get(rawMood, rawMood)
+            allowedMoods = {
+                "romantic",
+                "happy",
+                "sentimental",
+                "energetic",
+                "calm",
+                "dramatic",
+                "nostalgic",
+                "funny",
+                "general",
+                "unknown",
+            }
+            if normalizedMood not in allowedMoods:
+                normalizedMood = "general"
+
+            if normalizedMood != rawMood:
+                self.log.info(
+                    "Normalized prompt mood from %r to %r",
+                    rawMood,
+                    normalizedMood,
+                )
+
             row = {
                 "event_id": promptData.get("event_id") or promptData.get("eventID"),
                 "user_id": promptData.get("user_id") or promptData.get("userID"),
@@ -854,7 +884,7 @@ class SQLbuilder:
                 "intent": promptData.get("intent", "unknown"),
                 "content_type": promptData.get("content_type", "Both"),
                 "theme": promptData.get("theme", "general"),
-                "mood": promptData.get("mood", "general"),
+                "mood": normalizedMood,
                 "event_type": promptData.get("event_type", "unknown"),
                 "timing_preference": promptData.get("timing_preference", "unknown"),
                 "music_preference": promptData.get("music_preference", "unknown"),
