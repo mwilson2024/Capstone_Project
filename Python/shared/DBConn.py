@@ -766,6 +766,32 @@ class SQLbuilder:
             )
             return None
 
+    def updateUploadImageFormat(self,uploadID: int,blobName: str,filePath: str,fileSize: int):
+        if not uploadID or not blobName or not filePath or fileSize is None:
+            return None
+
+        try:
+            result = (
+                self.client
+                .table("uploads")
+                .update({
+                    "blob_name": blobName,
+                    "file_path": filePath,
+                    "mime_type": "image/jpeg",
+                    "file_size": int(fileSize),
+                })
+                .eq("upload_id", uploadID)
+                .execute()
+            )
+            return result.data[0] if result.data else None
+        except Exception as error:
+            self.log.exception(
+                "Could not update JPEG metadata for upload_id=%s: %s",
+                uploadID,
+                error,
+            )
+            return None
+
     def getVideosForMetadataBackfill(self, offset: int = 0, limit: int = 100, videoID: int | None = None):
         offset = max(int(offset or 0), 0)
         limit = min(max(int(limit or 100), 1), 1000)
@@ -1414,11 +1440,7 @@ class SQLbuilder:
             result = (
                 self.client
                 .table("storyboard_items")
-                .select(
-                    "storyboard_item_id, storyboard_id, photo_id, sequence_order, "
-                    "scene_label, confidence, reason, created_at, "
-                    "photos(upload_id, photo_taken, uploads(file_path, blob_name))"
-                )
+                .select("*")
                 .eq("storyboard_id", storyboardID)
                 .order("sequence_order", desc=False)
                 .execute()
@@ -1428,12 +1450,6 @@ class SQLbuilder:
             cleaned = []
 
             for row in rows:
-                photo = row.pop("photos", None) or {}
-                upload = photo.get("uploads") or {}
-
-                row["photo_taken"] = photo.get("photo_taken")
-                row["file_path"] = upload.get("file_path")
-                row["blob_name"] = upload.get("blob_name")
                 row["scene_label"] = row.get("scene_label") or "General Event Moment"
                 row["confidence"] = row.get("confidence") or 0
                 row["reason"] = row.get("reason") or ""

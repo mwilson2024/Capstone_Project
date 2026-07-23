@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 from azure.storage.queue import QueueClient
 from azure.storage.blob import (BlobServiceClient,BlobSasPermissions,ContentSettings,generate_blob_sas)
+from azure.core.exceptions import ResourceNotFoundError
 from dotenv import load_dotenv
 from fastapi import UploadFile
 import json
@@ -60,6 +61,21 @@ class blobHandler:
     def downloadBlob(self, blobName):
         blobClient = self.containerClient.get_blob_client(blobName)
         return blobClient.download_blob().readall()
+
+    def deleteBlob(self, blobName: str) -> bool:
+        if not blobName:
+            return False
+
+        try:
+            self.containerClient.get_blob_client(blobName).delete_blob(
+                delete_snapshots="include"
+            )
+            return True
+        except ResourceNotFoundError:
+            return False
+        except Exception as error:
+            self.log.exception("Could not delete blob %s: %s", blobName, error)
+            return False
     
     def downloadBlobToFile(self, blobName: str, localPath: str):
         blob_client = self.containerClient.get_blob_client(blobName)

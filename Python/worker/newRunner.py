@@ -3,7 +3,7 @@ import time
 import logging
 from logging.handlers import RotatingFileHandler
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from azure.core.exceptions import ResourceNotFoundError
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
@@ -99,7 +99,40 @@ class newRunner:
 
                             rgbImage.save(convertedPath, **saveOptions)
 
+                blobName = media.get("blob_name")
+                if not blobName:
+                    raise ValueError(f"Missing blob name for HEIF image: {sourcePath.name}")
+
+                jpegBlobName = str(PurePosixPath(blobName).with_suffix(".jpg"))
+                uploaded = self.blob.uploadLocalFile(
+                    blobName=jpegBlobName,
+                    localPath=str(convertedPath),
+                    contentType="image/jpeg",
+                )
+                if not uploaded:
+                    raise RuntimeError(f"Could not upload converted JPEG blob: {jpegBlobName}")
+
+                updatedUpload = self.db.updateUploadImageFormat(
+                    uploadID=media.get("upload_id"),
+                    blobName=uploaded["blob_name"],
+                    filePath=uploaded["url"],
+                    fileSize=uploaded["size_bytes"],
+                )
+                if not updatedUpload:
+                    raise RuntimeError(
+                        f"Could not update converted upload metadata: {media.get('upload_id')}"
+                    )
+
+                if not self.blob.deleteBlob(blobName):
+                    self.log.warning(
+                        "Converted HEIF upload but could not remove original blob: %s",
+                        blobName,
+                    )
+
                 media["file_path"] = str(convertedPath)
+                media["blob_name"] = uploaded["blob_name"]
+                media["mime_type"] = "image/jpeg"
+                media["file_size"] = uploaded["size_bytes"]
                 self.log.info(f"Converted HEIF image {sourcePath.name} to {convertedPath.name}")
 
             except Exception as error:
