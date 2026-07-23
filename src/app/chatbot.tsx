@@ -28,6 +28,8 @@ type EventRecord = {
 };
 type EventsResponse = { events: EventRecord[] };
 type PromptResponse = {
+  prompt_request_id?: number | null;
+  can_create?: boolean;
   inserted:
     | boolean
     | { prompt_request_id?: number | string }
@@ -287,11 +289,15 @@ export default function ChatbotScreen() {
         : typeof result.inserted === "object" && result.inserted !== null
           ? result.inserted
           : null;
-      const requestId = Number(insertedRow?.prompt_request_id);
+      const requestId = Number(
+        result.prompt_request_id ?? insertedRow?.prompt_request_id
+      );
       const isCreateAction =
+        result.can_create === true ||
         action === "create" ||
         (!action && result.analysis?.allowed === true && !isClarification);
       const canCreateVideo =
+        result.can_create !== false &&
         isCreateAction &&
         result.analysis?.allowed !== false &&
         Number.isInteger(requestId) &&

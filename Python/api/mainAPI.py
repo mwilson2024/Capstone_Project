@@ -651,6 +651,11 @@ async def analyzePrompt(request: dc.PromptRequest, current_user_id: int = Depend
         elif action == "create":
             result["follow_up_question"] = None
             result["allowed"] = True
+            intent = str(result.get("intent") or "create an event video").strip()
+            result["response"] = (
+                f"Your plan to {intent.rstrip('.')} is ready. "
+                "Select Create Video below to begin."
+            )
         else:
             result["follow_up_question"] = None
             result["allowed"] = False
@@ -663,12 +668,38 @@ async def analyzePrompt(request: dc.PromptRequest, current_user_id: int = Depend
         result["original_prompt"] = request.prompt
 
         inserted = db.insertPromptRequest(result)
+        insertedRows = (
+            inserted
+            if isinstance(inserted, list)
+            else [inserted]
+            if isinstance(inserted, dict)
+            else []
+        )
+        promptRequestID = int(
+            (insertedRows[0] if insertedRows else {}).get("prompt_request_id")
+            or 0
+        )
+
+        if promptRequestID <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="The video plan was analyzed but could not be saved.",
+            )
+
+        canCreate = (
+            action == "create"
+            and result.get("allowed") is True
+            and not result.get("out_of_scope")
+            and not result.get("unsafe_or_invalid")
+        )
 
         return {
             "event_id": request.eventID,
             "user_id": current_user_id,
             "guest_id": request.guestID,
             "inserted": inserted,
+            "prompt_request_id": promptRequestID,
+            "can_create": canCreate,
             "analysis": result
         }
 
