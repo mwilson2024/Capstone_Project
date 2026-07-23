@@ -2912,6 +2912,41 @@ mood_keywords={
     )
     }
 class MediaMappingConfig:
+    UNIVERSAL_EVENT_MOMENT_KEYWORDS: dict[str, dict[str, int]] = {
+        "energetic": {
+            "firework": 100,
+            "fireworks": 100,
+            "pyrotechnic": 95,
+            "pyrotechnics": 95,
+            "sparkler": 85,
+            "sparklers": 85,
+        },
+        "happy": {
+            "firework": 90,
+            "fireworks": 90,
+            "pyrotechnic": 85,
+            "pyrotechnics": 85,
+            "sparkler": 80,
+            "sparklers": 80,
+        },
+        "dramatic": {
+            "firework": 90,
+            "fireworks": 90,
+            "pyrotechnic": 90,
+            "pyrotechnics": 90,
+            "sparkler": 75,
+            "sparklers": 75,
+        },
+        "general": {
+            "firework": 90,
+            "fireworks": 90,
+            "pyrotechnic": 85,
+            "pyrotechnics": 85,
+            "sparkler": 75,
+            "sparklers": 75,
+        },
+    }
+
     THEME_CATEGORY_MAP: dict[str, tuple[str, ...]] = {
         "romance": ("romantic", "sentimental", "calm"),
         "friendship": ("friends", "happy", "funny"),

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -67,6 +68,7 @@ type UploadedVideo = {
 
 type GeneratedVideo = {
   id: string;
+  previewUri: string | null;
   title: string;
   durationSeconds: number | null;
 };
@@ -90,6 +92,7 @@ type GeneratedVideoRecord = {
   file_name: string | null;
   status: string;
   duration_seconds: number | null;
+  stream_url?: string | null;
 };
 
 type GeneratedVideosResponse = {
@@ -241,6 +244,32 @@ function formatDuration(seconds: number | null) {
   const minutes = Math.floor(rounded / 60);
   const remainingSeconds = rounded % 60;
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function GeneratedVideoPreview({ streamUrl }: { streamUrl: string }) {
+  const player = useVideoPlayer(
+    {
+      uri: streamUrl,
+      useCaching: Platform.OS !== "web",
+    },
+    (videoPlayer) => {
+      videoPlayer.loop = false;
+      videoPlayer.muted = true;
+    }
+  );
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        nativeControls={false}
+        contentFit="cover"
+        playsInline
+        crossOrigin="anonymous"
+      />
+    </View>
+  );
 }
 
 function UploadedVideoModal({
@@ -591,6 +620,7 @@ export default function EventDetailScreen() {
           )
           .map((video) => ({
             id: String(video.gen_vid_id),
+            previewUri: video.stream_url ?? null,
             title:
               video.title ||
               video.file_name ||
@@ -974,43 +1004,66 @@ export default function EventDetailScreen() {
             />
           ) : (
             <FlatList
-              key="generated"
+              key="generated-grid"
               data={generatedVideos}
+              numColumns={NUM_COLS}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={s.videoList}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    router.push(`/events/${id}/videos/${item.id}`)
-                  }
-                  style={[
-                    s.videoRow,
-                    { backgroundColor: c.surface, borderColor: c.border },
-                  ]}
-                >
-                  <View
-                    style={[
-                      s.videoIcon,
-                      { backgroundColor: c.accentStrong },
-                    ]}
-                  >
-                    <Ionicons name="sparkles" size={24} color="#fff" />
-                  </View>
-                  <View style={s.videoInfo}>
-                    <Text numberOfLines={1} style={s.videoTitle}>
-                      {item.title}
-                    </Text>
-                    <Text style={s.videoMeta}>
-                      {formatDuration(item.durationSeconds)}
-                    </Text>
-                  </View>
+              contentContainerStyle={[
+                s.grid,
+                generatedVideos.length === 0 && s.emptyList,
+              ]}
+              ListEmptyComponent={
+                <View style={s.empty}>
                   <Ionicons
-                    name="chevron-forward"
-                    size={20}
+                    name="sparkles-outline"
+                    size={42}
                     color={c.textFaint}
                   />
-                </TouchableOpacity>
+                  <Text style={s.emptyText}>No generated videos yet.</Text>
+                </View>
+              }
+              renderItem={({ item }) => (
+                <View
+                  style={[
+                    s.videoThumbnailCell,
+                    {
+                      width: photoCellSize,
+                      height: photoCellSize,
+                      backgroundColor: c.surface,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() =>
+                      router.push(`/events/${id}/videos/${item.id}`)
+                    }
+                    style={StyleSheet.absoluteFill}
+                  >
+                    {item.previewUri ? (
+                      <GeneratedVideoPreview streamUrl={item.previewUri} />
+                    ) : (
+                      <View style={s.videoThumbnailFallback}>
+                        <Ionicons
+                          name="sparkles-outline"
+                          size={30}
+                          color={c.textFaint}
+                        />
+                      </View>
+                    )}
+                    <View style={s.videoPlayBadge}>
+                      <Ionicons name="play" size={22} color="#fff" />
+                    </View>
+                    <View style={s.videoThumbnailFooter}>
+                      <Text numberOfLines={1} style={s.videoThumbnailTitle}>
+                        {item.title}
+                      </Text>
+                      <Text style={s.videoThumbnailDuration}>
+                        {formatDuration(item.durationSeconds)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               )}
             />
           )}

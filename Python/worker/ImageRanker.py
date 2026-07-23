@@ -284,6 +284,25 @@ class blipRanker():
             },
         }
 
+    @staticmethod
+    def moodKeywords(profile) -> dict[str, dict[str, int]]:
+        combined = {
+            category: dict(words)
+            for category, words in profile.mood_keywords.items()
+        }
+
+        for category, universalWords in (
+            ds.MediaMappingConfig.UNIVERSAL_EVENT_MOMENT_KEYWORDS.items()
+        ):
+            categoryWords = combined.setdefault(category, {})
+            for phrase, points in universalWords.items():
+                categoryWords[phrase] = max(
+                    int(categoryWords.get(phrase, 0)),
+                    int(points),
+                )
+
+        return combined
+
     def scorePhotoCategories(self,caption: str) -> dict:
         if not caption:
             caption = ""
@@ -317,7 +336,7 @@ class blipRanker():
         }
 
         categories = {
-            **profile.mood_keywords,
+            **self.moodKeywords(profile),
             "quality_reject": qualityKeywords,
             "nudity": nudityKeywords
         }
@@ -380,7 +399,7 @@ class blipRanker():
         }
 
         categories = {
-            **profile.mood_keywords,
+            **self.moodKeywords(profile),
             "quality_reject": qualityKeywords,
             "nudity": nudityKeywords
         }
