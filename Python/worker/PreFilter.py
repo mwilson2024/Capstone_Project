@@ -93,6 +93,8 @@ class ImgQualFilt:
     def analyze(self, photoID: int, imgPath: str):
         path = Path(imgPath)
 
+        rejectNum = 1
+
         imgHash = self.hashImages(path)
         imgHash = self.hashToStr(imgHash)
         #print(imgHash)
@@ -139,7 +141,7 @@ class ImgQualFilt:
         if noise > self.noiseThres:
             reason.append('noisy_photo')
 
-        if len(reason) > 0:
+        if len(reason) > rejectNum:
             status = 'rejected'
         else:
             status = 'approved'

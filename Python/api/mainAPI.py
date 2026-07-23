@@ -630,14 +630,161 @@ async def analyzePrompt(request: dc.PromptRequest, current_user_id: int = Depend
         }
         action = actionAliases.get(action, action)
 
+        userConversation = " ".join(
+            [
+                *[
+                    str(message.get("content") or "")
+                    for message in history
+                    if str(message.get("role") or "").lower() == "user"
+                ],
+                request.prompt,
+            ]
+        ).lower()
+        hasCreationRequest = any(
+            phrase in userConversation
+            for phrase in (
+                "slideshow",
+                "slide show",
+                "video",
+                "recap",
+                "highlight",
+            )
+        )
+        hasUsefulDirection = any(
+            phrase in userConversation
+            for phrase in (
+                "all ",
+                "night",
+                "photo",
+                "videos",
+                "fun",
+                "excited",
+                "exciting",
+                "energetic",
+                "calm",
+                "romantic",
+                "sentimental",
+                "dramatic",
+                "nostalgic",
+                "professional",
+                "fast",
+                "slow",
+            )
+        )
+
         if result.get("out_of_scope") or result.get("unsafe_or_invalid"):
             action = "reject"
+        elif hasCreationRequest and hasUsefulDirection:
+            action = "create"
         elif action not in {"create", "clarify", "reject"}:
             action = (
                 "clarify"
                 if str(result.get("follow_up_question") or "").strip()
                 else "create"
             )
+
+        rawContentType = str(result.get("content_type") or "Both").strip().lower()
+        result["content_type"] = {
+            "photo only": "Photo Only",
+            "photos only": "Photo Only",
+            "photos": "Photo Only",
+            "video only": "Videos Only",
+            "videos only": "Videos Only",
+            "videos": "Videos Only",
+            "both": "Both",
+            "photos and videos": "Both",
+            "videos and photos": "Both",
+        }.get(rawContentType, "Both")
+
+        rawTheme = str(result.get("theme") or "general").strip().lower()
+        result["theme"] = {
+            "fun": "celebration",
+            "happy": "celebration",
+            "excited": "celebration",
+            "exciting": "celebration",
+            "energetic": "celebration",
+            "party": "celebration",
+        }.get(rawTheme, rawTheme)
+        if result["theme"] not in {
+            "romance",
+            "friendship",
+            "family",
+            "celebration",
+            "professional",
+            "funny",
+            "emotional",
+            "general",
+            "unknown",
+        }:
+            result["theme"] = "general"
+
+        rawMood = str(result.get("mood") or "general").strip().lower()
+        result["mood"] = {
+            "fun": "energetic",
+            "excited": "energetic",
+            "exciting": "energetic",
+            "high energy": "energetic",
+            "upbeat": "energetic",
+        }.get(rawMood, rawMood)
+        if result["mood"] not in {
+            "romantic",
+            "happy",
+            "sentimental",
+            "energetic",
+            "calm",
+            "dramatic",
+            "nostalgic",
+            "funny",
+            "general",
+            "unknown",
+        }:
+            result["mood"] = "general"
+
+        eventType = str(eventContext.get("type") or result.get("event_type") or "unknown").strip().lower()
+        result["event_type"] = (
+            eventType
+            if eventType
+            in {
+                "wedding",
+                "birthday",
+                "graduation",
+                "concert",
+                "sports",
+                "corporate",
+                "general",
+                "unknown",
+            }
+            else "general"
+        )
+
+        timingPreference = str(
+            result.get("timing_preference") or "unknown"
+        ).strip().lower()
+        result["timing_preference"] = (
+            timingPreference
+            if timingPreference in {"slow", "medium", "fast", "unknown"}
+            else "unknown"
+        )
+
+        musicPreference = str(
+            result.get("music_preference") or "unknown"
+        ).strip().lower()
+        result["music_preference"] = {
+            "excited": "fun",
+            "exciting": "fun",
+            "energetic": "fun",
+            "happy": "fun",
+        }.get(musicPreference, musicPreference)
+        if result["music_preference"] not in {
+            "romantic",
+            "upbeat",
+            "calm",
+            "dramatic",
+            "fun",
+            "none",
+            "unknown",
+        }:
+            result["music_preference"] = "unknown"
 
         if action == "clarify":
             followUpQuestion = str(

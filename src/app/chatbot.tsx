@@ -292,9 +292,14 @@ export default function ChatbotScreen() {
       const requestId = Number(
         result.prompt_request_id ?? insertedRow?.prompt_request_id
       );
+      const replyStartsCreate = reply
+        .trim()
+        .toLowerCase()
+        .startsWith("crea");
       const isCreateAction =
         result.can_create === true ||
         action === "create" ||
+        replyStartsCreate ||
         (!action && result.analysis?.allowed === true && !isClarification);
       const canCreateVideo =
         result.can_create !== false &&
